@@ -62,8 +62,8 @@ namespace oled
     ERROR,          // fail
     PROTOCOL_ERROR, // SPI failure
     INIT_ERROR,     // initialization error
-    DEINIT_ERROR    // deinitialization error
-
+    DEINIT_ERROR,   // deinitialization error
+    COORD_ERROR     // invalid coordinates
   };
 
   // Redefine the type of a single pixel

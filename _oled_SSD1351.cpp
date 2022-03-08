@@ -211,23 +211,39 @@ namespace oled
     _cs = 1;
   }
 
-  void SSD1351::set_dynamic_area(DynamicArea *area)
+  Status SSD1351::set_dynamic_area(DynamicArea *area)
   {
+    // check if given area is valid
+    if (!check_coord(area->xCrd, area->yCrd, area->width, area->height))
+    {
+      return Status::COORD_ERROR;
+    }
+
+    // destroy dynamic area if the new one has different size
     if (area->width != _dynamic_area.width || area->height != _dynamic_area.height)
     {
       destroy_dynamic_area();
     }
+    // allocate memory for the area
     if (_dynamic_area.buffer == NULL)
     {
       _dynamic_area.buffer = (pixel_t *)malloc(area->width * area->height * sizeof(pixel_t));
     }
 
+    // if, after allocating memory the buffer is null something wrong happened... return an error
+    if (_dynamic_area.buffer == NULL)
+    {
+      return Status::INIT_ERROR;
+    }
+
+    // set the coordinates and border
     _dynamic_area.xCrd = area->xCrd;
     _dynamic_area.yCrd = area->yCrd;
     _dynamic_area.width = area->width;
     _dynamic_area.height = area->height;
-
     set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
+
+    return Status::SUCCESS;
   }
 
   void SSD1351::destroy_dynamic_area()
@@ -242,13 +258,16 @@ namespace oled
   Status SSD1351::fill_screen(Color color)
   {
     DynamicArea area = {
-      .xCrd = 0,
-      .yCrd = 0,
-      .width = OLED_SCREEN_WIDTH,
-      .height = OLED_SCREEN_HEIGHT
-    };
-    set_dynamic_area(&area);
-        
+        .xCrd = 0,
+        .yCrd = 0,
+        .width = OLED_SCREEN_WIDTH,
+        .height = OLED_SCREEN_HEIGHT};
+    Status status = set_dynamic_area(&area);
+    if (status != Status::SUCCESS)
+    {
+      return status;
+    }
+
     uint8_t *data = (uint8_t *)_dynamic_area.buffer;
     for (size_t i = 0; i < (OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT); i++)
     {
@@ -262,157 +281,126 @@ namespace oled
     return Status::SUCCESS;
   }
 
-  Status SSD1351::DrawBox(
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height,
-      uint16_t color)
+  Status SSD1351::draw_image(const uint8_t *image)
   {
-
-    Status status;
-    DynamicArea boxArea;
-
-    boxArea.xCrd = xCrd;
-    boxArea.yCrd = yCrd;
-    boxArea.width = width;
-    boxArea.height = height;
-
-    uint32_t
-        boxSize = width * height;
-
-    set_dynamic_area(&boxArea);
-
-    /* helper pointer */
-    uint8_t *
-        boxBuf = (uint8_t *)_dynamic_area.buffer;
-
-    if (NULL == boxBuf)
-    {
-
-      return Status::ERROR;
-    }
-
-    /* check the bounds */
-    if AreCoordsNotValid (xCrd, yCrd, width, height)
-    {
-      status = Status::INIT_ERROR;
-    }
-
-    else
-    {
-      /* fill the buffer with color */
-
-      for (uint16_t i = 0; i < boxSize; i++)
-      {
-        boxBuf[2 * i] = color >> 8;
-        boxBuf[2 * i + 1] = color;
-      }
-
-      /* set the locations */
-
-      /* adjust for the offset */
-      OLED_AdjustColumnOffset(xCrd);
-      OLED_AdjustRowOffset(yCrd);
-
-      SendCmd(OLED_CMD_SET_COLUMN, CMD_BYTE);
-      SendCmd(xCrd, DATA_BYTE);
-      SendCmd(xCrd + (width - 1), DATA_BYTE);
-      SendCmd(OLED_CMD_SET_ROW, CMD_BYTE);
-      SendCmd(yCrd, DATA_BYTE);
-      SendCmd(yCrd + (height - 1), DATA_BYTE);
-
-      /* fill the GRAM */
-      SendData((uint8_t *)boxBuf, boxSize * OLED_BYTES_PER_PIXEL);
-      destroy_dynamic_area();
-    }
-
-    return status;
+    update_screen_buffer((pixel_t *)image);
+    draw_screen_buffer();
+    return Status::SUCCESS;
   }
 
-  Status SSD1351::DrawPixel(
-      int8_t xCrd,
-      int8_t yCrd,
-      uint16_t color)
+  Status SSD1351::draw_image(const uint8_t *image, uint8_t x, uint8_t y, uint8_t w, uint8_t h)
   {
-    /* check the bounds */
-    if AreCoordsNotValid (xCrd, yCrd, 1, 1)
+    DynamicArea area = {
+        .xCrd = x,
+        .yCrd = y,
+        .width = w,
+        .height = h};
+    Status status = set_dynamic_area(&area);
+    if (status != Status::SUCCESS)
     {
-      return Status::INIT_ERROR;
+      return status;
     }
 
-    else
-    {
-      /* set directions */
-      set_buffer_border(xCrd, yCrd, OLED_SCREEN_WIDTH, OLED_SCREEN_HEIGHT);
+    update_screen_buffer((pixel_t *)image);
+    draw_screen_buffer();
 
-      uint16_t
-          /* swap bytes */
-          dot = color;
-
-      OLED_SwapMe(dot);
-
-      /* fill the GRAM */
-      SendData((uint8_t *)&dot, 2);
-
-      return Status::SUCCESS;
-    }
+    destroy_dynamic_area();
+    return Status::SUCCESS;
   }
 
-  Status SSD1351::DrawScreen(
-      const uint8_t *image,
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height,
-      Transition transition)
+  Status SSD1351::draw_screen(const uint8_t *image, Transition transition)
   {
-    Status
-        status = Status::SUCCESS;
-
-    if AreCoordsNotValid (xCrd, yCrd, width, height)
+    DynamicArea area = {
+        .xCrd = 0,
+        .yCrd = 0,
+        .width = OLED_SCREEN_WIDTH,
+        .height = OLED_SCREEN_HEIGHT};
+    Status status = set_dynamic_area(&area);
+    if (status != Status::SUCCESS)
     {
-      return Status::INIT_ERROR;
+      return status;
     }
 
+    update_screen_buffer((pixel_t *)image);
     switch (transition)
     {
     case Transition::NONE:
     {
-      None(image, xCrd, yCrd, width, height);
+      draw_screen_buffer();
       break;
     }
-
     case Transition::TOP_DOWN:
     {
-      TopDown(image, xCrd, yCrd, width, height);
+      draw_screen_top_down();
       break;
     }
-
     case Transition::DOWN_TOP:
     {
-      DownTop(image, xCrd, yCrd, width, height);
+      draw_screen_down_top();
       break;
     }
-
     case Transition::LEFT_RIGHT:
     {
-      LeftRight(image, xCrd, yCrd, width, height);
+      draw_screen_left_right();
       break;
     }
-
     case Transition::RIGHT_LEFT:
     {
-      RightLeft(image, xCrd, yCrd, width, height);
+      draw_screen_right_left();
       break;
     }
+    }
 
-    default:
+    destroy_dynamic_area();
+    return Status::SUCCESS;
+  }
+
+  Status SSD1351::draw_box(uint8_t x, uint8_t y, uint8_t w, uint8_t h, Color color)
+  {
+    uint32_t boxSize = w * h;
+    DynamicArea boxArea = {
+        .xCrd = x,
+        .yCrd = y,
+        .width = w,
+        .height = h};
+    Status status = set_dynamic_area(&boxArea);
+    if (status != Status::SUCCESS)
     {
-    }
+      return status;
     }
 
-    return status;
+    for (uint16_t i = 0; i < boxSize; i++)
+    {
+      _dynamic_area.buffer[2 * i] = color >> 8;
+      _dynamic_area.buffer[2 * i + 1] = color;
+    }
+
+    draw_screen_buffer();
+    destroy_dynamic_area();
+
+    return Status::SUCCESS;
+  }
+
+  Status SSD1351::draw_pixel(uint8_t x, uint8_t y, Color color)
+  {
+    DynamicArea area = {
+        .xCrd = x,
+        .yCrd = y,
+        .width = 1,
+        .height = 1};
+    Status status = set_dynamic_area(&area);
+    if (status != Status::SUCCESS)
+    {
+      return status;
+    }
+
+    pixel_t dot = swap_pixel(color);
+    _dynamic_area.buffer[0] = dot;
+    draw_screen_buffer();
+    
+    destroy_dynamic_area();
+    
+    return Status::SUCCESS;
   }
 
   Status SSD1351::SetFont(
@@ -739,123 +727,6 @@ namespace oled
     return Status::SUCCESS;
   }
 
-  void SSD1351::GetImageDimensions(uint8_t *width, uint8_t *height, const uint8_t *image)
-  {
-    *height = image[2] + (image[3] << 8);
-    *width = image[4] + (image[5] << 8);
-  }
-
-  Status SSD1351::AddImage(const uint8_t *image)
-  {
-    Status
-        status = Status::SUCCESS;
-
-    /* check the bounds */
-    if AreCoordsNotValid (_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height)
-    {
-      status = Status::INIT_ERROR;
-    }
-
-    else
-    {
-      Swap((oled_pixel_t)_dynamic_area.buffer, BMP_SkipHeader(image), _dynamic_area.width * _dynamic_area.height);
-
-      /* update the main screen buffer */
-      UpdateBuffer(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height, (const uint8_t *)_dynamic_area.buffer);
-    }
-
-    return status;
-  }
-
-  Status SSD1351::AddImage(const uint8_t *image, int8_t xCrd, int8_t yCrd)
-  {
-    Status
-        status = Status::SUCCESS;
-
-    DynamicArea image_dynamicArea;
-
-    image_dynamicArea.xCrd = xCrd;
-    image_dynamicArea.yCrd = yCrd;
-
-    GetImageDimensions(&image_dynamicArea.width, &image_dynamicArea.height, image);
-    set_dynamic_area(&image_dynamicArea);
-
-    /* check the bounds */
-    if AreCoordsNotValid (_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height)
-    {
-      status = Status::INIT_ERROR;
-    }
-
-    else
-    {
-      Swap((oled_pixel_t)_dynamic_area.buffer, BMP_SkipHeader(image), _dynamic_area.width * _dynamic_area.height);
-
-      /* update the main screen buffer */
-      UpdateBuffer(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height, (const uint8_t *)_dynamic_area.buffer);
-    }
-
-    return status;
-  }
-
-  Status SSD1351::DrawImage(const uint8_t *image)
-  {
-
-    Status
-        status = Status::SUCCESS;
-
-    status = AddImage(image);
-
-    /* set the locations */
-    set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
-
-    /* fill the GRAM */
-    SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
-
-    return status;
-  }
-
-  Status SSD1351::DrawImage(const uint8_t *image, int8_t xCrd, int8_t yCrd)
-  {
-
-    Status
-        status = Status::SUCCESS;
-
-    status = AddImage(image, xCrd, yCrd);
-
-    /* set the locations */
-    set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
-
-    /* fill the GRAM */
-    SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
-
-    return status;
-  }
-
-  Status SSD1351::DrawImage(const uint8_t *image, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height)
-  {
-    Status status = Status::SUCCESS;
-
-    DynamicArea area = {
-        .xCrd = xCrd,
-        .yCrd = yCrd,
-        .width = width,
-        .height = height};
-    set_dynamic_area(&area);
-
-    if (_dynamic_area.buffer == NULL)
-    {
-      return Status::INIT_ERROR;
-    }
-    memcpy(_dynamic_area.buffer, image, area.width * area.height * OLED_BYTES_PER_PIXEL);
-
-    set_buffer_border(area.xCrd, area.yCrd, area.width, area.height);
-    SendData((const uint8_t *)_dynamic_area.buffer, area.width * area.height * OLED_BYTES_PER_PIXEL);
-
-    destroy_dynamic_area();
-
-    return status;
-  }
-
   void SSD1351::Swap(
       oled_pixel_t imgDst,
       const uint8_t *imgSrc,
@@ -944,105 +815,48 @@ namespace oled
     SendCmd(y + OLED_ROW_OFFSET + h - 1, DATA_BYTE);
   }
 
+  void SSD1351::update_screen_buffer(pixel_t *image)
+  {
+    memcpy(_dynamic_area.buffer, image, _dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
+  }
+
+  void SSD1351::transpose_screen_buffer()
+  {
+    pixel_t *tmpBuff = (pixel_t *)malloc(_dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
+    memcpy(tmpBuff, _dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
+    for (uint8_t i = 0; i < _dynamic_area.height; i++)
+    {
+      for (uint8_t j = 0; j < _dynamic_area.width; j++)
+      {
+        _dynamic_area.buffer[j * _dynamic_area.height + i] = tmpBuff[i * _dynamic_area.width + j];
+      }
+    }
+    free(tmpBuff);
+  }
+
   void SSD1351::draw_screen_buffer()
   {
     SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
   }
 
-  void SSD1351::Transpose(
-      oled_pixel_t transImage,
-      const oled_pixel_t image,
-      uint8_t width,
-      uint8_t height)
+  void SSD1351::draw_screen_top_down()
   {
-    for (uint8_t i = 0; i < height; i++)
-    {
-      for (uint8_t j = 0; j < width; j++)
-      {
-        transImage[j * height + i] = image[i * width + j];
-      }
-    }
-  }
+    uint16_t transStep = OLED_TRANSITION_STEP;
 
-  Status SSD1351::None(
-      const uint8_t *image,
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height)
-  {
-    Status status = Status::SUCCESS;
+    uint16_t partImgSize = _dynamic_area.width * transStep;
 
-    DynamicArea transImageArea = {
-        .xCrd = 0,
-        .yCrd = 0,
-        .width = 96,
-        .height = 96};
-    set_dynamic_area(&transImageArea);
-
-    oled_pixel_t transImage = _dynamic_area.buffer;
-
-    if (transImage == NULL)
-    {
-      return Status::INIT_ERROR;
-    }
-
-    memcpy(transImage, (uint8_t *)image, width * height * OLED_BYTES_PER_PIXEL);
-
-    set_buffer_border(xCrd, yCrd, width, height);
-    SendData((const uint8_t *)transImage, width * height * OLED_BYTES_PER_PIXEL);
-
-    destroy_dynamic_area();
-    return status;
-  }
-
-  Status SSD1351::TopDown(
-      const uint8_t *image,
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height)
-  {
-    Status status = Status::SUCCESS;
-
-    DynamicArea transImageArea = {
-        .xCrd = 0,
-        .yCrd = 0,
-
-        .width = 96,
-        .height = 96};
-
-    set_dynamic_area(&transImageArea);
-
-    oled_pixel_t transImage = _dynamic_area.buffer;
-
-    if (transImage == NULL)
-    {
-      return Status::INIT_ERROR;
-    }
-
-    memcpy(transImage, (uint8_t *)image, width * height * OLED_BYTES_PER_PIXEL);
-
-    uint16_t
-        transStep = OLED_TRANSITION_STEP;
-
-    uint16_t
-        partImgSize = width * transStep;
-
-    uint8_t *
-        partImgPtr = (uint8_t *)transImage + (height - transStep) * (width * OLED_BYTES_PER_PIXEL);
-
-    /**
-     * set locations
-     */
+    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer +
+                          (_dynamic_area.height - transStep) *
+                              (_dynamic_area.width * OLED_BYTES_PER_PIXEL);
 
     while (1)
     {
-      set_buffer_border(xCrd, yCrd, width, height);
+      set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
 
-      if (partImgSize > width * height)
+      if (partImgSize > _dynamic_area.width * _dynamic_area.height)
       {
-        SendData((const uint8_t *)transImage, width * height * OLED_BYTES_PER_PIXEL);
+        SendData((const uint8_t *)_dynamic_area.buffer,
+                 _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
@@ -1050,145 +864,64 @@ namespace oled
         SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
 
-      partImgPtr -= (width * transStep) * OLED_BYTES_PER_PIXEL;
-      partImgSize += (width * transStep);
+      partImgPtr -= _dynamic_area.width * transStep * OLED_BYTES_PER_PIXEL;
+      partImgSize += _dynamic_area.width * transStep;
       transStep++;
     }
-
-    destroy_dynamic_area();
-
-    return status;
   }
 
-  Status SSD1351::DownTop(
-      const uint8_t *image,
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height)
+  void SSD1351::draw_screen_down_top()
   {
-    Status
-        status = Status::SUCCESS;
+    uint16_t transStep = OLED_TRANSITION_STEP;
 
-    DynamicArea transImageArea = {
-        .xCrd = 0,
-        .yCrd = 0,
-        .width = 96,
-        .height = 96};
+    uint16_t partImgSize = _dynamic_area.width * transStep;
 
-    set_dynamic_area(&transImageArea);
+    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer;
 
-    oled_pixel_t transImage = _dynamic_area.buffer;
-
-    if (transImage == NULL)
-    {
-      return Status::INIT_ERROR;
-    }
-
-    memcpy(transImage, (uint8_t *)image, width * height * OLED_BYTES_PER_PIXEL);
-
-    uint16_t
-        transStep = OLED_TRANSITION_STEP;
-
-    uint16_t
-        partImgSize = width * transStep;
-
-    uint8_t *
-        partImgPtr = (uint8_t *)transImage;
-
-    uint8_t
-        yCrd_moving = (yCrd + height) - 1;
-
-    /**
-     * set locations
-     */
+    uint8_t yCrd_moving = _dynamic_area.yCrd + _dynamic_area.height - 1;
 
     while (1)
     {
-      if (
-          (partImgSize > OLED_SCREEN_SIZE) || (yCrd_moving < yCrd))
+      if (partImgSize > OLED_SCREEN_SIZE || yCrd_moving < _dynamic_area.yCrd)
       {
-        /* draw full image */
-        set_buffer_border(xCrd, yCrd, width, height);
-        SendData((const uint8_t *)transImage, width * height * OLED_BYTES_PER_PIXEL);
+        set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd,
+                          _dynamic_area.width, _dynamic_area.height);
+        SendData((const uint8_t *)_dynamic_area.buffer,
+                 _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
-
       else
       {
-        set_buffer_border(xCrd, yCrd_moving, width, (yCrd + height) - yCrd_moving);
+        set_buffer_border(_dynamic_area.xCrd, yCrd_moving,
+                          _dynamic_area.width, _dynamic_area.yCrd + _dynamic_area.height - yCrd_moving);
         SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
-
-      /**
-       * update variables
-       */
 
       yCrd_moving -= transStep;
-      partImgSize += (width * transStep);
+      partImgSize += _dynamic_area.width * transStep;
       transStep++;
     }
-
-    destroy_dynamic_area();
-
-    return status;
   }
 
-  Status SSD1351::LeftRight(
-      const uint8_t *image,
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height)
+  void SSD1351::draw_screen_left_right()
   {
-    Status
-        status = Status::SUCCESS;
-
-    DynamicArea
-        transImageArea =
-            {
-                .xCrd = 0,
-                .yCrd = 0,
-
-                .width = 96,
-                .height = 96};
-
-    set_dynamic_area(&transImageArea);
-
-    /* helper pointer */
-    oled_pixel_t
-        transImage = (oled_pixel_t)_dynamic_area.buffer;
-
-    if (NULL == transImage)
-    {
-      return Status::INIT_ERROR;
-    }
-
-    Transpose(transImage, (oled_pixel_t)image, width, height);
+    transpose_screen_buffer();
 
     SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
     SendCmd(OLED_REMAP_SETTINGS | REMAP_VERTICAL_INCREMENT, DATA_BYTE);
 
-    uint16_t
-        transStep = OLED_TRANSITION_STEP;
-
-    uint16_t
-        partImgSize = height * transStep;
-
-    uint8_t *
-        partImgPtr = (uint8_t *)transImage + (width - transStep) * (height * OLED_BYTES_PER_PIXEL);
-
-    /**
-     * set locations
-     */
+    uint16_t transStep = OLED_TRANSITION_STEP;
+    uint16_t partImgSize = _dynamic_area.height * transStep;
+    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer +
+                          (_dynamic_area.width - transStep) *
+                              (_dynamic_area.height * OLED_BYTES_PER_PIXEL);
 
     while (1)
     {
-      set_buffer_border(xCrd, yCrd, width, height);
-
-      if (partImgSize > width * height)
+      set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
+      if (partImgSize > _dynamic_area.width * _dynamic_area.height)
       {
-        SendData((const uint8_t *)transImage, width * height * OLED_BYTES_PER_PIXEL);
+        SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
@@ -1196,90 +929,48 @@ namespace oled
         SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
 
-      partImgPtr -= (transStep * height) * OLED_BYTES_PER_PIXEL;
-      partImgSize += (transStep * height);
+      partImgPtr -= transStep * _dynamic_area.height * OLED_BYTES_PER_PIXEL;
+      partImgSize += transStep * _dynamic_area.height;
       transStep++;
     }
 
     SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
     SendCmd(OLED_REMAP_SETTINGS, DATA_BYTE);
-    destroy_dynamic_area();
-    return status;
   }
 
-  Status SSD1351::RightLeft(
-      const uint8_t *image,
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height)
+  void SSD1351::draw_screen_right_left()
   {
-    DynamicArea
-        transImageArea =
-            {
-                .xCrd = 0,
-                .yCrd = 0,
-
-                .width = 96,
-                .height = 96};
-
-    set_dynamic_area(&transImageArea);
-
-    /* helper pointer */
-    oled_pixel_t
-        transImage = _dynamic_area.buffer;
-
-    if (NULL == transImage)
-    {
-      return Status::INIT_ERROR;
-    }
-
-    Transpose(transImage, (oled_pixel_t)image, width, height);
+    transpose_screen_buffer();
 
     SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
     SendCmd(OLED_REMAP_SETTINGS | REMAP_VERTICAL_INCREMENT, DATA_BYTE);
 
-    uint16_t
-        transStep = OLED_TRANSITION_STEP;
-
-    uint16_t
-        partImgSize = height * transStep;
-
-    uint8_t *
-        partImgPtr = (uint8_t *)transImage;
-
-    uint8_t
-        xCrd_moving = (xCrd + width) - 1;
-
-    /** set locations */
+    uint16_t transStep = OLED_TRANSITION_STEP;
+    uint16_t partImgSize = _dynamic_area.height * transStep;
+    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer;
+    uint8_t xCrd_moving = _dynamic_area.xCrd + _dynamic_area.width - 1;
 
     while (1)
     {
-      if ((partImgSize > width * height) || (xCrd_moving < xCrd))
+      if ((partImgSize > _dynamic_area.width * _dynamic_area.height) || (xCrd_moving < _dynamic_area.xCrd))
       {
-        set_buffer_border(xCrd, yCrd, width, height);
-        SendData((const uint8_t *)transImage, height * width * OLED_BYTES_PER_PIXEL);
+        set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
+        SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.height * _dynamic_area.width * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
       {
-        set_buffer_border(xCrd_moving, yCrd, (xCrd + width) - xCrd_moving, height);
+        set_buffer_border(xCrd_moving, _dynamic_area.yCrd,
+                          _dynamic_area.xCrd + _dynamic_area.width - xCrd_moving, _dynamic_area.height);
         SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
-
-      /** update variables*/
-
       xCrd_moving -= transStep;
-      partImgSize += (height * transStep);
+      partImgSize += _dynamic_area.height * transStep;
       transStep++;
     }
 
     SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
     SendCmd(OLED_REMAP_SETTINGS, DATA_BYTE);
-
-    destroy_dynamic_area();
-
-    return Status::SUCCESS;
   }
 
   Status SSD1351::CreateTextBackground()

@@ -63,7 +63,7 @@ namespace oled
         void power_off();
 
         // Set OLED dynamic area
-        void set_dynamic_area(DynamicArea *dynamic_area);
+        Status set_dynamic_area(DynamicArea *dynamic_area);
 
         // Destroy current OLED dynamic area
         void destroy_dynamic_area();
@@ -71,21 +71,28 @@ namespace oled
         // Fill the entire screen with specified color
         Status fill_screen(Color color);
 
+        // Draw an image to OLED.
+        // Used with set_dynamic_ares() for positioning image.
+        // TODO: Figure out if this is needed
+        Status draw_image(const uint8_t *image);
+
+        // Draw an image to OLED at position x,y with width,height.
+        Status draw_image(const uint8_t *image, uint8_t x, uint8_t y, uint8_t w, uint8_t h);
+
+        // Draw an image in the entire screen with a transition
+        Status draw_screen(const uint8_t *image, Transition transition);
+
+        // Draw a box on the OLED
+        Status draw_box(uint8_t x, uint8_t y, uint8_t w, uint8_t h, Color color);
+
+        // Draw a single pixel
+        Status draw_pixel(uint8_t x, uint8_t y, Color color);
+
         // Send a command to the OLED
         void SendCmd(uint32_t cmd, uint8_t isFirst);
 
         // Send raw data to the OLED
         void SendData(const uint8_t *dataToSend, uint32_t dataSize);
-
-        // Draw a box on the OLED
-        Status DrawBox(int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height, uint16_t color);
-
-        // Draw a single pixel
-        Status DrawPixel(int8_t xCrd, int8_t yCrd, uint16_t color);
-
-        // Draw an image in the entire screen with a transition
-        Status DrawScreen(const uint8_t *image, int8_t xCrd, int8_t yCrd,
-                          uint8_t width, uint8_t height, Transition transition);
 
         // Set the font to use
         Status SetFont(const uint8_t *newFont, uint16_t newColor);
@@ -111,24 +118,6 @@ namespace oled
         // Write text on OLED at position set in Dynamic Area Field. Used with SetDynamicArea() Function.
         Status DrawText(const uint8_t *text);
 
-        // Return the dimensions of image
-        void GetImageDimensions(uint8_t *width, uint8_t *height, const uint8_t *image);
-
-        // Add image to the main screen buffer.Used with SetDynamicArea() Function.
-        Status AddImage(const uint8_t *image);
-
-        // Add image to the main screen buffer at position x,y
-        Status AddImage(const uint8_t *image, int8_t xCrd, int8_t yCrd);
-
-        // Send image to OLED GRAM.Used with SetDynamicArea() Function for positioning image.
-        Status DrawImage(const uint8_t *image);
-
-        // Send image to OLED GRAM at position x,y.
-        Status DrawImage(const uint8_t *image, int8_t xCrd, int8_t yCrd);
-
-        // Send image to OLED GRAM at position x,y and width,height.
-        Status DrawImage(const uint8_t *image, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height);
-
         void Swap(oled_pixel_t imgDst, const uint8_t *imgSrc, uint16_t imgSize);
 
         void UpdateBuffer(int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height, const uint8_t *image);
@@ -147,7 +136,6 @@ namespace oled
         DigitalOut _dc;
 
         const uint8_t *selectedFont;
-
         uint8_t
             currentChar_width,
             currentChar_height,
@@ -165,14 +153,16 @@ namespace oled
 
         /* Internal Functions */
         void set_buffer_border(uint8_t x, uint8_t y, uint8_t width, uint8_t height);
+        void update_screen_buffer(pixel_t *image);
+        void transpose_screen_buffer();
         void draw_screen_buffer();
 
-        void Transpose(oled_pixel_t transImage, const oled_pixel_t image, uint8_t width, uint8_t height);
-        Status None(const uint8_t *image, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height);
-        Status TopDown(const uint8_t *image, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height);
-        Status DownTop(const uint8_t *image, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height);
-        Status LeftRight(const uint8_t *image, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height);
-        Status RightLeft(const uint8_t *image, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height);
+        // Functions to draw screen with transition
+        void draw_screen_top_down();
+        void draw_screen_down_top();
+        void draw_screen_left_right();
+        void draw_screen_right_left();
+
         Status CreateTextBackground();
         void WriteCharToBuf(uint16_t charToWrite, oled_pixel_t *chrBuf);
         Status AddCharToTextArea(oled_pixel_t chrPtr, uint8_t chrWidth, uint8_t chrHeight, oled_pixel_t copyAddr, uint8_t imgWidth);

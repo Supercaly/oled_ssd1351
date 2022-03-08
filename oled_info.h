@@ -119,6 +119,16 @@
 #define OLED_ACC_TO_CMD_NO (0xB0)
 #define OLED_ACC_TO_CMD_YES (0xB1)
 
+// macros
+
+// check if given coordinates are valid
+#define check_coord(x, y, w, h)                     \
+    (x >= 0) && (x + w - 1 <= OLED_SCREEN_WIDTH) && \
+        (y >= 0) && (y + h - 1 <= OLED_SCREEN_HEIGHT)
+
+// swap a pixel color in little endian form
+#define swap_pixel(p) ((p & 0xFF00) >> 8) | ((x & 0x00FF) << 8)
+
 // junk
 #define OLED_SwapMe(x) x = ((x & 0xFF00) >> 8) | ((x & 0x00FF) << 8)
 #define OLED_AdjustRowOffset(y) y += OLED_ROW_OFFSET
