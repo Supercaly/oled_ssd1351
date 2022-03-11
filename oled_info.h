@@ -126,23 +126,7 @@
     (x >= 0) && (x + w - 1 <= OLED_SCREEN_WIDTH) && \
         (y >= 0) && (y + h - 1 <= OLED_SCREEN_HEIGHT)
 
-// swap a pixel color in little endian form
-#define swap_pixel(p) ((p & 0xFF00) >> 8) | ((x & 0x00FF) << 8)
-
-// junk
-#define OLED_SwapMe(x) x = ((x & 0xFF00) >> 8) | ((x & 0x00FF) << 8)
-#define OLED_AdjustRowOffset(y) y += OLED_ROW_OFFSET
-#define OLED_AdjustColumnOffset(x) x += OLED_COLUMN_OFFSET
-#define BMP_SkipHeader(imgPtr) ((const uint8_t *)(imgPtr) + BMP_HEADER_BYTE_SIZE)
-#define CheckLimits(x, y, w, h) (((x + w - 1) > OLED_SCREEN_WIDTH) || (x < 0) || ((y + h - 1) > OLED_SCREEN_HEIGHT) || (y < 0))
-#define AreCoordsValid(x, y, w, h) (0 == CheckLimits(x, y, w, h))
-#define AreCoordsNotValid(x, y, w, h) (0 != CheckLimits(x, y, w, h))
-#define OLED_SCREEN_SIZE (OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT)
-#define OLED_GRAM_SIZE (OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT * OLED_BYTES_PER_PIXEL)
-// #define OLED_SCREEN_WIDTH_END ((OLED_SCREEN_WIDTH - 1) + OLED_COLUMN_OFFSET)
-// #define OLED_SCREEN_HEIGHT_END ((OLED_SCREEN_HEIGHT - 1) + OLED_ROW_OFFSET)
-// #define OLED_ACTION_DCON (0xFE)
-// #define OLED_ACTION_DCOFF (0xFF)
-#define BMP_HEADER_BYTE_SIZE (6)
+// swap a color in little endian form
+#define swap_color(p) ((p & 0xFF00) >> 8) | ((x & 0x00FF) << 8)
 
 #endif // OLED_INFO_H_

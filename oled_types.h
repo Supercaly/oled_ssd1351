@@ -63,7 +63,8 @@ namespace oled
     PROTOCOL_ERROR, // SPI failure
     INIT_ERROR,     // initialization error
     DEINIT_ERROR,   // deinitialization error
-    COORD_ERROR     // invalid coordinates
+    COORD_ERROR,    // invalid coordinates
+    AREA_NOT_SET    // using dynamic area w/out setting it
   };
 
   // Redefine the type of a single pixel
@@ -97,44 +98,32 @@ namespace oled
     WHITE = 0xFFFF
   };
 
-  typedef struct
-  {
-    uint32_t DCpin;
-    uint32_t CSpin;
-    uint32_t RSTpin;
-    // uint32_t RWpin;
-    uint32_t ENpin;
+  // Represent all possible text alignments
+  typedef uint8_t TextAlign;
 
-  } settingsOLED_t;
+#define TEXT_ALIGN_LEFT 0x1
+#define TEXT_ALIGN_CENTER 0x2
+#define TEXT_ALIGN_RIGHT 0x3
+#define TEXT_ALIGN_TOP 0x10
+#define TEXT_ALIGN_VCENTER 0x20
+#define TEXT_ALIGN_BOTTOM 0x30
 
-  typedef enum
-  {
-    OLED_TEXT_ALIGN_NONE = 0,
-
-    OLED_TEXT_ALIGN_LEFT = 0x1,
-    OLED_TEXT_ALIGN_RIGHT = 0x2,
-    OLED_TEXT_ALIGN_CENTER = 0x3,
-
-    OLED_TEXT_VALIGN_TOP = 0x10,
-    OLED_TEXT_VALIGN_BOTTOM = 0x20,
-    OLED_TEXT_VALIGN_CENTER = 0x30
-
-  } oled_text_align_t;
-
-  typedef struct
+  // Represent all properties assignable to the text
+  // displayed by the OLED
+  struct TextProperties
   {
     const uint8_t *font;
-    uint16_t fontColor;
-    oled_text_align_t alignParam;
-    const uint8_t *background;
+    Color fontColor;
+    TextAlign alignParam;
+    pixel_t *bgImage;
+  };
 
-  } oled_text_properties_t;
-
-  typedef struct _init_cmd_tag
+  // Represent a command sent to the OLED
+  struct Command
   {
     uint32_t cmd;
     uint8_t type;
-  } init_cmd_t;
+  };
 } // namespace oled
 
 #endif // OLED_TYPES_H_
