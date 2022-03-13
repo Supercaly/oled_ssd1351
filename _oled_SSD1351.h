@@ -72,7 +72,7 @@ namespace oled
         Status fill_screen(Color color);
 
         // Draw an image to OLED.
-        // Used with set_dynamic_ares() for positioning image.
+        // Used with set_dynamic_area() for positioning image.
         // TODO: Figure out if this is needed
         Status draw_image(const uint8_t *image);
 
@@ -88,70 +88,48 @@ namespace oled
         // Draw a single pixel
         Status draw_pixel(uint8_t x, uint8_t y, Color color);
 
-        // Send a command to the OLED
-        void SendCmd(uint32_t cmd, uint8_t isFirst);
+        // Create a text box; recommended for dynamic text.
+        // Used with set_dynamic_area() for positioning the text box.
+        Status text_box(const char *text);
 
-        // Send raw data to the OLED
-        void SendData(const uint8_t *dataToSend, uint32_t dataSize);
+        // Write text on the OLED at position x,y
+        Status label(const char *text, uint8_t x, uint8_t y);
 
-        // Set the font to use
-        Status SetFont(const uint8_t *newFont, uint16_t newColor);
+        // Return the width in px af given text
+        uint8_t get_text_width(const char *text);
 
         // Set the OLED text properties
-        void SetTextProperties(oled_text_properties_t *textProperties);
+        void set_text_properties(TextProperties *prop);
 
-        // Get OLED text properties
-        void GetTextProperties(oled_text_properties_t *textProperties);
-
-        // Return the width in px required for the given string to be displayed
-        uint8_t GetTextWidth(const uint8_t *text);
+        // Get the OLED text properties
+        void get_text_properties(TextProperties *prop);
 
         // Count the characters of a text
-        uint8_t CharCount(uint8_t width, const uint8_t *font, const uint8_t *text, uint8_t length);
-
-        // Add text to the main screen buffer at position x,y.
-        Status AddText(const uint8_t *text, int8_t xCrd, int8_t yCrd);
-
-        // Add text to the main screen buffer. Used with SetDynamicArea() Function.
-        Status AddText(const uint8_t *text);
-
-        // Write text on OLED at position set in Dynamic Area Field. Used with SetDynamicArea() Function.
-        Status DrawText(const uint8_t *text);
-
-        void Swap(oled_pixel_t imgDst, const uint8_t *imgSrc, uint16_t imgSize);
-
-        void UpdateBuffer(int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height, const uint8_t *image);
-
-        // Write text on OLED at position x,y. Recommended for Static Text.
-        Status Label(const uint8_t *text, int8_t xCrd, int8_t yCrd);
-
-        // Create a text box of width,height at position x,y. Recommended for Dynamic Text.
-        Status TextBox(const uint8_t *text, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height);
+        // uint8_t CharCount(uint8_t width, const uint8_t *font, const uint8_t *text, uint8_t length);
 
     private:
+        // OLED device wires
         SPI _spi;
         DigitalOut _power;
         DigitalOut _cs;
         DigitalOut _rst;
         DigitalOut _dc;
 
-        const uint8_t *selectedFont;
-        uint8_t
-            currentChar_width,
-            currentChar_height,
-            screenBuf[OLED_GRAM_SIZE];
-
-        uint16_t
-            selectedFont_color,
-            selectedFont_firstChar, /* first character in the font table */
-            selectedFont_lastChar,  /* last character in the font table */
-            selectedFont_height,
-            colorMask;
+        // Font related variables
+        uint16_t selectedFont_firstChar;
+        uint16_t selectedFont_lastChar;
+        uint16_t selectedFont_height;
 
         DynamicArea _dynamic_area;
-        oled_text_properties_t oled_text_properties;
+        TextProperties _text_properties;
 
-        /* Internal Functions */
+        // Send a command to the OLED
+        void send_cmd(Command cmd);
+
+        // Send raw data to the OLED
+        void send_data(const uint8_t *dataToSend, uint32_t dataSize);
+
+        // Functions to manage the screen buffer
         void set_buffer_border(uint8_t x, uint8_t y, uint8_t width, uint8_t height);
         void update_screen_buffer(pixel_t *image);
         void transpose_screen_buffer();
@@ -163,11 +141,11 @@ namespace oled
         void draw_screen_left_right();
         void draw_screen_right_left();
 
-        Status CreateTextBackground();
-        void WriteCharToBuf(uint16_t charToWrite, oled_pixel_t *chrBuf);
-        Status AddCharToTextArea(oled_pixel_t chrPtr, uint8_t chrWidth, uint8_t chrHeight, oled_pixel_t copyAddr, uint8_t imgWidth);
-        void *AllocateDynamicArea(uint32_t area);
-        Status DestroyDynamicArea(void *ptr);
+        // Functions to draw text
+        Status draw_text(const char *text);
+        void compute_alignment(uint8_t textWidth, uint8_t *xOff, uint8_t *yOff);
+        void create_text_bg();
+        void write_char_to_buffer(char charToWrite, uint8_t *xOffset, uint8_t *yOffset);
     };
 } // namespace oled
 

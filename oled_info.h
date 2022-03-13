@@ -127,6 +127,6 @@
         (y >= 0) && (y + h - 1 <= OLED_SCREEN_HEIGHT)
 
 // swap a color in little endian form
-#define swap_color(p) ((p & 0xFF00) >> 8) | ((x & 0x00FF) << 8)
+#define swap_color(p) ((p & 0xFF00) >> 8) | ((p & 0x00FF) << 8)
 
 #endif // OLED_INFO_H_

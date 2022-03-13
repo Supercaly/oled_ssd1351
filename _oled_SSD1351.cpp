@@ -39,7 +39,7 @@
 
 namespace oled
 {
-  const init_cmd_t seq[] = {
+  const Command seq[] = {
       OLED_CMD_SET_CMD_LOCK, CMD_BYTE,
       OLED_UNLOCK, DATA_BYTE,
       OLED_CMD_SET_CMD_LOCK, CMD_BYTE,
@@ -101,14 +101,11 @@ namespace oled
     power_on();
 
     // reset text prop
-    currentChar_width = 0,
-    currentChar_height = 0;
-    colorMask = Color::WHITE;
-    oled_text_properties.alignParam = OLED_TEXT_ALIGN_CENTER;
-    oled_text_properties.background = NULL;
-    oled_text_properties.font = OpenSans_10x15_Regular;
-    oled_text_properties.fontColor = Color::WHITE;
-    SetTextProperties(&oled_text_properties);
+    _text_properties.alignParam = TEXT_ALIGN_LEFT | TEXT_ALIGN_TOP;
+    _text_properties.bgImage = NULL;
+    _text_properties.font = &Dialog_plain_18;
+    _text_properties.fontColor = Color::WHITE;
+    set_text_properties(&_text_properties);
 
     // reset dynamic area
     _dynamic_area.xCrd = 0;
@@ -120,30 +117,29 @@ namespace oled
     // send init commands to OLED
     for (int i = 0; i < 39; i++)
     {
-      SendCmd(seq[i].cmd, seq[i].type);
+      send_cmd(seq[i]);
     }
   }
 
   SSD1351::~SSD1351(void)
   {
-    // TO_DO
-    // Run Free and zero pointers.
+    destroy_dynamic_area();
   }
 
   void SSD1351::dim_screen_on()
   {
     for (int i = 0; i < 16; i++)
     {
-      SendCmd(OLED_CMD_CONTRASTMASTER, CMD_BYTE);
-      SendCmd(0xC0 | (0xF - i), DATA_BYTE);
+      send_cmd({OLED_CMD_CONTRASTMASTER, CMD_BYTE});
+      send_cmd({(uint32_t)(0xC0 | (0xF - i)), DATA_BYTE});
       wait_ms(20);
     }
   }
 
   void SSD1351::dim_screen_off()
   {
-    SendCmd(OLED_CMD_CONTRASTMASTER, CMD_BYTE);
-    SendCmd(0xC0 | 0xF, DATA_BYTE);
+    send_cmd({OLED_CMD_CONTRASTMASTER, CMD_BYTE});
+    send_cmd({0xC0 | 0xF, DATA_BYTE});
   }
 
   void SSD1351::power_on()
@@ -154,61 +150,6 @@ namespace oled
   void SSD1351::power_off()
   {
     _power = 0;
-  }
-
-  void SSD1351::SendCmd(uint32_t cmd,
-                        uint8_t isFirst)
-  {
-
-    uint8_t
-        txSize = 1,
-        txBuf[4];
-
-    memcpy((void *)txBuf, (void *)&cmd, txSize);
-
-    if (isFirst)
-    {
-      _dc = 0;
-    }
-    else
-    {
-      _dc = 1;
-    }
-
-    _cs = 0;
-    _spi.write(*txBuf);
-    _cs = 1;
-  }
-
-  void SSD1351::SendData(const uint8_t *dataToSend,
-                         uint32_t dataSize)
-
-  {
-
-    uint16_t *arrayPtr = (uint16_t *)dataToSend;
-
-    for (uint32_t i = 0; i < dataSize / 2; i++)
-    {
-      arrayPtr[i] &= colorMask;
-    }
-
-    SendCmd(OLED_CMD_WRITERAM, CMD_BYTE);
-
-    /* sending data -> set DC pin */
-    _dc = 1;
-    _cs = 0;
-
-    const uint8_t *
-        /* traversing pointer */
-        bufPtr = dataToSend;
-
-    for (uint32_t i = 0; i < dataSize; i++)
-    {
-      _spi.write(*bufPtr);
-      bufPtr += 1;
-    }
-
-    _cs = 1;
   }
 
   Status SSD1351::set_dynamic_area(DynamicArea *area)
@@ -283,6 +224,11 @@ namespace oled
 
   Status SSD1351::draw_image(const uint8_t *image)
   {
+    if (_dynamic_area.buffer == NULL)
+    {
+      return Status::AREA_NOT_SET;
+    }
+
     update_screen_buffer((pixel_t *)image);
     draw_screen_buffer();
     return Status::SUCCESS;
@@ -394,425 +340,143 @@ namespace oled
       return status;
     }
 
-    pixel_t dot = swap_pixel(color);
+    pixel_t dot = swap_color(color);
     _dynamic_area.buffer[0] = dot;
     draw_screen_buffer();
-    
+
     destroy_dynamic_area();
-    
-    return Status::SUCCESS;
-  }
-
-  Status SSD1351::SetFont(
-      const uint8_t *newFont,
-      uint16_t newColor)
-  {
-    /* save the new values in intern variables */
-
-    selectedFont = newFont;
-    selectedFont_firstChar = newFont[2] | ((uint16_t)newFont[3] << 8);
-    selectedFont_lastChar = newFont[4] | ((uint16_t)newFont[5] << 8);
-    selectedFont_height = newFont[6];
-    selectedFont_color = newColor;
-
-    OLED_SwapMe(selectedFont_color);
 
     return Status::SUCCESS;
   }
 
-  void SSD1351::SetTextProperties(oled_text_properties_t *textProperties)
+  Status SSD1351::text_box(const char *text)
   {
-    oled_text_properties.font = textProperties->font;
-    oled_text_properties.fontColor = textProperties->fontColor;
-    oled_text_properties.alignParam = textProperties->alignParam;
-    oled_text_properties.background = textProperties->background;
+    if (text == NULL)
+    {
+      return Status::ERROR;
+    }
 
-    SetFont(oled_text_properties.font, oled_text_properties.fontColor);
+    return draw_text(text);
   }
 
-  void SSD1351::GetTextProperties(oled_text_properties_t *textProperties)
+  Status SSD1351::label(const char *text, uint8_t x, uint8_t y)
   {
-    textProperties->font = oled_text_properties.font;
-    textProperties->fontColor = oled_text_properties.fontColor;
-    textProperties->alignParam = oled_text_properties.alignParam;
-    textProperties->background = oled_text_properties.background;
+    if (text == NULL)
+    {
+      return Status::ERROR;
+    }
+
+    DynamicArea txtArea = {
+        .xCrd = x,
+        .yCrd = y,
+        .width = get_text_width(text),
+        .height = selectedFont_height};
+    Status status = set_dynamic_area(&txtArea);
+    if (status != Status::SUCCESS)
+    {
+      return status;
+    }
+
+    status = draw_text(text);
+
+    destroy_dynamic_area();
+    return status;
   }
 
-  uint8_t SSD1351::GetTextWidth(const uint8_t *text)
+  uint8_t SSD1351::get_text_width(const char *text)
   {
     uint8_t chrCnt = 0;
     uint8_t text_width = 0;
 
-    while (0 != text[chrCnt])
+    while (text[chrCnt] != 0)
     {
-      text_width += *(selectedFont + 8 + (uint16_t)((text[chrCnt++] - selectedFont_firstChar) << 2));
-      /* make 1px space between chars */
+      // text_width += *(_text_properties.font + 8 + (uint16_t)((text[chrCnt++] - selectedFont_firstChar) << 2));
+      //  make 1px space between chars
       text_width++;
     }
-    /* remove the final space */
+    // remove the final space
     text_width--;
-
     return text_width;
   }
 
-  uint8_t SSD1351::CharCount(uint8_t width, const uint8_t *font, const uint8_t *text, uint8_t length)
+  void SSD1351::get_text_properties(TextProperties *prop)
   {
-    uint8_t chrCnt = 0;
-    uint8_t text_width = 0;
-    uint16_t firstChar;
-
-    firstChar = font[2] | ((uint16_t)font[3] << 8);
-
-    while (chrCnt < length)
-    {
-      text_width += *(font + 8 + (uint16_t)((text[chrCnt++] - firstChar) << 2));
-      if (text_width > width)
-      {
-        chrCnt--;
-        break;
-      }
-      /* make 1px space between chars */
-      text_width++;
-    }
-
-    return chrCnt;
+    prop->font = _text_properties.font;
+    prop->fontColor = _text_properties.fontColor;
+    prop->alignParam = _text_properties.alignParam;
+    prop->bgImage = _text_properties.bgImage;
   }
 
-  Status SSD1351::AddText(const uint8_t *text, int8_t xCrd, int8_t yCrd)
+  void SSD1351::set_text_properties(TextProperties *prop)
   {
-    uint16_t
-        chrCnt = 0;
-    oled_pixel_t
-        chrBuf = NULL;
-
-    uint8_t
-        currentChar_x = 0,
-        currentChar_y = 0;
-
-    uint8_t
-        text_height = 0,
-        text_width = 0;
-
-    text_width = GetTextWidth(text);
-
-    /*
-     * set default values, if necessary
-     */
-
-    text_height = selectedFont_height;
-    DynamicArea textArea;
-
-    textArea.width = text_width;
-    textArea.height = text_height;
-    textArea.xCrd = xCrd;
-    textArea.yCrd = yCrd;
-    set_dynamic_area(&textArea);
-
-    currentChar_y = (_dynamic_area.height - text_height) >> 1;
-
-    switch (oled_text_properties.alignParam & OLED_TEXT_HALIGN_MASK)
-    {
-    case OLED_TEXT_ALIGN_LEFT:
-    {
-      currentChar_x = 0;
-      break;
-    }
-
-    case OLED_TEXT_ALIGN_RIGHT:
-    {
-      currentChar_x = (_dynamic_area.width - text_width);
-      break;
-    }
-
-    case OLED_TEXT_ALIGN_CENTER:
-    {
-      currentChar_x += (_dynamic_area.width - text_width) >> 1;
-      break;
-    }
-
-    case OLED_TEXT_ALIGN_NONE:
-    {
-      break;
-    }
-
-    default:
-    {
-    }
-    }
-
-    if (CreateTextBackground() != Status::SUCCESS)
-    {
-      return Status::ERROR;
-    }
-
-    /*
-     * write the characters into designated space, one by one
-     */
-
-    chrCnt = 0;
-    while (0 != text[chrCnt])
-    {
-      WriteCharToBuf(text[chrCnt++], &chrBuf);
-
-      if (NULL == chrBuf)
-      {
-        return Status::INIT_ERROR;
-      }
-
-      else
-      {
-        if (
-            ((currentChar_x + currentChar_width) > _dynamic_area.width) || ((currentChar_y + currentChar_height) > _dynamic_area.height))
-        {
-          // destroy_dynamic_area(chrBuf);
-          chrBuf = NULL;
-          return Status::ERROR;
-        }
-
-        /* copy data */
-        oled_pixel_t
-            copyAddr = _dynamic_area.buffer + (currentChar_y * _dynamic_area.width + currentChar_x);
-
-        AddCharToTextArea(chrBuf, currentChar_width, currentChar_height, copyAddr, _dynamic_area.width);
-
-        currentChar_x += (currentChar_width + 1);
-        currentChar_y += 0;
-
-        // destroy_dynamic_area(chrBuf);
-        chrBuf = NULL;
-      }
-    }
-
-    UpdateBuffer(
-        _dynamic_area.xCrd,
-        _dynamic_area.yCrd,
-        _dynamic_area.width,
-        _dynamic_area.height,
-        (const uint8_t *)_dynamic_area.buffer);
-
-    return Status::SUCCESS;
-  }
-
-  Status SSD1351::AddText(const uint8_t *text)
-  {
-    uint16_t
-        chrCnt = 0;
-    oled_pixel_t
-        chrBuf = NULL;
-
-    uint8_t
-        currentChar_x = 0,
-        currentChar_y = 0;
-
-    uint8_t
-        text_height = 0,
-        text_width = 0;
-
-    text_width = GetTextWidth(text);
-
-    /**
-     * set default values, if necessary
-     */
-
-    text_height = selectedFont_height;
-
-    if ((_dynamic_area.width < text_width) || (_dynamic_area.height < text_height))
-    {
-      DynamicArea textArea;
-      textArea.width = text_width;
-      textArea.height = text_height;
-      set_dynamic_area(&textArea);
-    }
-
-    currentChar_y = (_dynamic_area.height - text_height) >> 1;
-
-    switch (oled_text_properties.alignParam & OLED_TEXT_HALIGN_MASK)
-    {
-    case OLED_TEXT_ALIGN_LEFT:
-    {
-      currentChar_x = 0;
-      break;
-    }
-
-    case OLED_TEXT_ALIGN_RIGHT:
-    {
-      currentChar_x = (_dynamic_area.width - text_width);
-      break;
-    }
-
-    case OLED_TEXT_ALIGN_CENTER:
-    {
-      currentChar_x += (_dynamic_area.width - text_width) >> 1;
-      break;
-    }
-
-    case OLED_TEXT_ALIGN_NONE:
-    {
-      break;
-    }
-
-    default:
-    {
-    }
-    }
-
-    if (CreateTextBackground() != Status::SUCCESS)
-    {
-      return Status::ERROR;
-    }
-
-    /**
-     * write the characters into designated space, one by one
-     */
-
-    chrCnt = 0;
-    while (0 != text[chrCnt])
-    {
-      WriteCharToBuf(text[chrCnt++], &chrBuf);
-
-      if (NULL == chrBuf)
-      {
-        return Status::INIT_ERROR;
-      }
-
-      else
-      {
-        if (
-            ((currentChar_x + currentChar_width) > _dynamic_area.width) || ((currentChar_y + currentChar_height) > _dynamic_area.height))
-        {
-          // destroy_dynamic_area(chrBuf);
-          chrBuf = NULL;
-          return Status::ERROR;
-        }
-
-        /* copy data */
-        oled_pixel_t
-            copyAddr = _dynamic_area.buffer + (currentChar_y * _dynamic_area.width + currentChar_x);
-
-        AddCharToTextArea(chrBuf, currentChar_width, currentChar_height, copyAddr, _dynamic_area.width);
-
-        currentChar_x += (currentChar_width + 1);
-        currentChar_y += 0;
-
-        // destroy_dynamic_area(chrBuf);
-        chrBuf = NULL;
-      }
-    }
-
-    UpdateBuffer(
-        _dynamic_area.xCrd,
-        _dynamic_area.yCrd,
-        _dynamic_area.width,
-        _dynamic_area.height,
-        (const uint8_t *)_dynamic_area.buffer);
-
-    return Status::SUCCESS;
-  }
-
-  Status SSD1351::DrawText(const uint8_t *text)
-  {
-
-    if (NULL == text)
-    {
-      return Status::ERROR;
-    }
-
-    AddText(text);
-    /* set the locations */
-    set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
-    /* fill the GRAM */
-    SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
-
-    // free( currentTextAreaImage );
-    return Status::SUCCESS;
-  }
-
-  void SSD1351::Swap(
-      oled_pixel_t imgDst,
-      const uint8_t *imgSrc,
-      uint16_t imgSize)
-  {
-    for (int var = 0; var < imgSize; var++)
-    {
-      *imgDst = *imgSrc << 8;
-      imgSrc++;
-      *imgDst |= *imgSrc;
-      imgDst++;
-      imgSrc++;
-    }
-  }
-
-  void SSD1351::UpdateBuffer(
-      int8_t xCrd,
-      int8_t yCrd,
-      uint8_t width,
-      uint8_t height,
-      const uint8_t *image)
-  {
-    /* copy data */
-    oled_pixel_t
-        copyAddr = (oled_pixel_t)screenBuf + (yCrd * OLED_SCREEN_WIDTH + xCrd);
-
-    for (uint8_t i = 0; i < height; i++)
-    {
-      memcpy((void *)copyAddr, (void *)image, width * OLED_BYTES_PER_PIXEL);
-      copyAddr += OLED_SCREEN_WIDTH;
-      image += width * OLED_BYTES_PER_PIXEL;
-    }
-  }
-
-  Status SSD1351::Label(const uint8_t *text, int8_t xCrd, int8_t yCrd)
-  {
-
-    if (NULL == text)
-    {
-      return Status::ERROR;
-    }
-
-    AddText(text, xCrd, yCrd);
-
-    /* set the locations */
-    set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
-
-    /* fill the GRAM */
-    SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
-
-    // free( currentTextAreaImage );
-    return Status::SUCCESS;
-  }
-
-  Status SSD1351::TextBox(const uint8_t *text, int8_t xCrd, int8_t yCrd, uint8_t width, uint8_t height)
-  {
-
-    if (NULL == text)
-    {
-      return Status::ERROR;
-    }
-
-    DynamicArea textArea;
-    textArea.width = width;
-    textArea.height = height;
-    textArea.xCrd = xCrd;
-    textArea.yCrd = yCrd;
-
-    set_dynamic_area(&textArea);
-    DrawText(text);
-
-    return Status::SUCCESS;
+    _text_properties.font = prop->font;
+    _text_properties.fontColor = prop->fontColor;
+    _text_properties.alignParam = prop->alignParam;
+    _text_properties.bgImage = prop->bgImage;
+
+    // selectedFont_firstChar = *(prop->font + 2);
+    // selectedFont_lastChar = *(prop->font + 3) + selectedFont_firstChar;
+    // selectedFont_height = *(prop->font + 1);
   }
 
   /////////////////////
   // private methods //
   /////////////////////
 
+  void SSD1351::send_cmd(Command command)
+  {
+    uint8_t
+        txSize = 1,
+        txBuf[4];
+
+    memcpy((void *)txBuf, (void *)&command.cmd, txSize);
+
+    if (command.type)
+    {
+      _dc = 0;
+    }
+    else
+    {
+      _dc = 1;
+    }
+
+    _cs = 0;
+    _spi.write(*txBuf);
+    _cs = 1;
+  }
+
+  void SSD1351::send_data(const uint8_t *dataToSend, uint32_t dataSize)
+  {
+    uint16_t *arrayPtr = (uint16_t *)dataToSend;
+    for (uint32_t i = 0; i < dataSize / 2; i++)
+    {
+      arrayPtr[i] &= Color::WHITE;
+    }
+
+    send_cmd({OLED_CMD_WRITERAM, CMD_BYTE});
+
+    /* sending data -> set DC pin */
+    _dc = 1;
+    _cs = 0;
+
+    const uint8_t *bufPtr = dataToSend;
+    for (uint32_t i = 0; i < dataSize; i++)
+    {
+      _spi.write(*bufPtr);
+      bufPtr += 1;
+    }
+
+    _cs = 1;
+  }
+
   void SSD1351::set_buffer_border(uint8_t x, uint8_t y, uint8_t w, uint8_t h)
   {
-    SendCmd(OLED_CMD_SET_COLUMN, CMD_BYTE);
-    SendCmd(x + OLED_COLUMN_OFFSET, DATA_BYTE);
-    SendCmd(x + OLED_COLUMN_OFFSET + w - 1, DATA_BYTE);
-    SendCmd(OLED_CMD_SET_ROW, CMD_BYTE);
-    SendCmd(y + OLED_ROW_OFFSET, DATA_BYTE);
-    SendCmd(y + OLED_ROW_OFFSET + h - 1, DATA_BYTE);
+    send_cmd({OLED_CMD_SET_COLUMN, CMD_BYTE});
+    send_cmd({(uint32_t)x + OLED_COLUMN_OFFSET, DATA_BYTE});
+    send_cmd({(uint32_t)x + OLED_COLUMN_OFFSET + w - 1, DATA_BYTE});
+    send_cmd({OLED_CMD_SET_ROW, CMD_BYTE});
+    send_cmd({(uint32_t)y + OLED_ROW_OFFSET, DATA_BYTE});
+    send_cmd({(uint32_t)y + OLED_ROW_OFFSET + h - 1, DATA_BYTE});
   }
 
   void SSD1351::update_screen_buffer(pixel_t *image)
@@ -836,7 +500,7 @@ namespace oled
 
   void SSD1351::draw_screen_buffer()
   {
-    SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
+    send_data((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
   }
 
   void SSD1351::draw_screen_top_down()
@@ -855,13 +519,13 @@ namespace oled
 
       if (partImgSize > _dynamic_area.width * _dynamic_area.height)
       {
-        SendData((const uint8_t *)_dynamic_area.buffer,
-                 _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)_dynamic_area.buffer,
+                  _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
       {
-        SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
 
       partImgPtr -= _dynamic_area.width * transStep * OLED_BYTES_PER_PIXEL;
@@ -882,19 +546,19 @@ namespace oled
 
     while (1)
     {
-      if (partImgSize > OLED_SCREEN_SIZE || yCrd_moving < _dynamic_area.yCrd)
+      if (partImgSize > OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT || yCrd_moving < _dynamic_area.yCrd)
       {
         set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd,
                           _dynamic_area.width, _dynamic_area.height);
-        SendData((const uint8_t *)_dynamic_area.buffer,
-                 _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)_dynamic_area.buffer,
+                  _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
       {
         set_buffer_border(_dynamic_area.xCrd, yCrd_moving,
                           _dynamic_area.width, _dynamic_area.yCrd + _dynamic_area.height - yCrd_moving);
-        SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
 
       yCrd_moving -= transStep;
@@ -907,8 +571,8 @@ namespace oled
   {
     transpose_screen_buffer();
 
-    SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
-    SendCmd(OLED_REMAP_SETTINGS | REMAP_VERTICAL_INCREMENT, DATA_BYTE);
+    send_cmd({OLED_CMD_SET_REMAP, CMD_BYTE});
+    send_cmd({OLED_REMAP_SETTINGS | REMAP_VERTICAL_INCREMENT, DATA_BYTE});
 
     uint16_t transStep = OLED_TRANSITION_STEP;
     uint16_t partImgSize = _dynamic_area.height * transStep;
@@ -921,12 +585,12 @@ namespace oled
       set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
       if (partImgSize > _dynamic_area.width * _dynamic_area.height)
       {
-        SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
       {
-        SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
 
       partImgPtr -= transStep * _dynamic_area.height * OLED_BYTES_PER_PIXEL;
@@ -934,16 +598,16 @@ namespace oled
       transStep++;
     }
 
-    SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
-    SendCmd(OLED_REMAP_SETTINGS, DATA_BYTE);
+    send_cmd({OLED_CMD_SET_REMAP, CMD_BYTE});
+    send_cmd({OLED_REMAP_SETTINGS, DATA_BYTE});
   }
 
   void SSD1351::draw_screen_right_left()
   {
     transpose_screen_buffer();
 
-    SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
-    SendCmd(OLED_REMAP_SETTINGS | REMAP_VERTICAL_INCREMENT, DATA_BYTE);
+    send_cmd({OLED_CMD_SET_REMAP, CMD_BYTE});
+    send_cmd({OLED_REMAP_SETTINGS | REMAP_VERTICAL_INCREMENT, DATA_BYTE});
 
     uint16_t transStep = OLED_TRANSITION_STEP;
     uint16_t partImgSize = _dynamic_area.height * transStep;
@@ -955,150 +619,167 @@ namespace oled
       if ((partImgSize > _dynamic_area.width * _dynamic_area.height) || (xCrd_moving < _dynamic_area.xCrd))
       {
         set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
-        SendData((const uint8_t *)_dynamic_area.buffer, _dynamic_area.height * _dynamic_area.width * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)_dynamic_area.buffer, _dynamic_area.height * _dynamic_area.width * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
       {
         set_buffer_border(xCrd_moving, _dynamic_area.yCrd,
                           _dynamic_area.xCrd + _dynamic_area.width - xCrd_moving, _dynamic_area.height);
-        SendData((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)partImgPtr, partImgSize * OLED_BYTES_PER_PIXEL);
       }
       xCrd_moving -= transStep;
       partImgSize += _dynamic_area.height * transStep;
       transStep++;
     }
 
-    SendCmd(OLED_CMD_SET_REMAP, CMD_BYTE);
-    SendCmd(OLED_REMAP_SETTINGS, DATA_BYTE);
+    send_cmd({OLED_CMD_SET_REMAP, CMD_BYTE});
+    send_cmd({OLED_REMAP_SETTINGS, DATA_BYTE});
   }
 
-  Status SSD1351::CreateTextBackground()
+  Status SSD1351::draw_text(const char *text)
   {
-    uint8_t
-        xCrd = _dynamic_area.xCrd,
-        yCrd = _dynamic_area.yCrd,
-        width = _dynamic_area.width,
-        height = _dynamic_area.height;
-
-    oled_pixel_t
-        imgBuf = _dynamic_area.buffer,
-        copyAddr;
-
-    const uint8_t *
-        background = oled_text_properties.background;
-
-    /* copy data */
-
-    if (
-        (NULL == imgBuf) || ((xCrd + width) > OLED_SCREEN_WIDTH) || ((yCrd + height) > OLED_SCREEN_HEIGHT))
+    if (_dynamic_area.buffer == NULL)
     {
+      return Status::AREA_NOT_SET;
+    }
+
+    int textHeight = selectedFont_height;
+    int textWidth = get_text_width(text);
+
+    if (textWidth > _dynamic_area.width || textHeight > _dynamic_area.height)
+    {
+      // TODO: Resize the dynamic area and return error only if the text is bigger that the screen
       return Status::INIT_ERROR;
     }
 
-    if (NULL == background)
+    uint8_t char_x_offset = 0,
+            char_y_offset = 0;
+
+    // compute text alignment
+    compute_alignment(textWidth, &char_x_offset, &char_y_offset);
+
+    // create text background
+    create_text_bg();
+
+    // write characters in their space one by one
+    int charCount = 0;
+    while (text[charCount] != 0)
     {
-      for (uint8_t i = 0; i < height; i++)
-      {
-        memset((void *)imgBuf, 0, width * OLED_BYTES_PER_PIXEL);
-        imgBuf += width;
-      }
+      a(text[charCount], &char_x_offset, &char_y_offset);
+      // write_char_to_buffer(text[charCount], &char_x_offset, &char_y_offset);
+      charCount++;
     }
 
-    else
-    {
-      copyAddr = (oled_pixel_t)(BMP_SkipHeader(background)) + (yCrd * OLED_SCREEN_WIDTH + xCrd);
-      for (uint8_t i = 0; i < height; i++)
-      {
-        Swap((oled_pixel_t)imgBuf, (const uint8_t *)copyAddr, width);
-        imgBuf += width;
-        copyAddr += OLED_SCREEN_WIDTH;
-      }
-    }
-
+    // display the text on the OLED
+    draw_screen_buffer();
     return Status::SUCCESS;
   }
 
-  void SSD1351::WriteCharToBuf(
-      uint16_t charToWrite,
-      oled_pixel_t *chrBuf)
+  void SSD1351::compute_alignment(uint8_t textWidth, uint8_t *xOff, uint8_t *yOff)
   {
-    uint8_t
-        foo = 0,
-        mask;
+    int xAlign = _text_properties.alignParam & 0x0F;
+    int yAlign = _text_properties.alignParam & 0xF0;
 
-    const uint8_t *
-        pChTable = selectedFont + 8 + (uint16_t)((charToWrite - selectedFont_firstChar) << 2);
-
-    currentChar_width = *pChTable,
-    currentChar_height = selectedFont_height;
-
-    uint32_t
-        offset = (uint32_t)pChTable[1] | ((uint32_t)pChTable[2] << 8) | ((uint32_t)pChTable[3] << 16);
-
-    const uint8_t *
-        pChBitMap = selectedFont + offset;
-
-    /* allocate space for char image */
-    *chrBuf = (oled_pixel_t)malloc(currentChar_height * currentChar_width);
-
-    if (NULL == *chrBuf)
+    switch (xAlign)
     {
-      return;
+    case TEXT_ALIGN_LEFT:
+      *xOff = 0;
+      break;
+    case TEXT_ALIGN_RIGHT:
+      *xOff = _dynamic_area.width - textWidth;
+      break;
+    case TEXT_ALIGN_CENTER:
+      *xOff = (_dynamic_area.width - textWidth) >> 1;
+      break;
+    default:
+      *xOff = 0;
+      break;
     }
 
-    for (uint8_t yCnt = 0; yCnt < currentChar_height; yCnt++)
+    switch (yAlign)
     {
-      mask = 0;
+    case TEXT_ALIGN_TOP:
+      *yOff = 0;
+      break;
+    case TEXT_ALIGN_BOTTOM:
+      *yOff = _dynamic_area.height - selectedFont_height;
+      break;
+    case TEXT_ALIGN_VCENTER:
+      *yOff = (_dynamic_area.height - selectedFont_height) >> 1;
+      break;
+    default:
+      *yOff = 0;
+      break;
+    }
+  }
 
-      for (uint8_t xCnt = 0; xCnt < currentChar_width; xCnt++)
-      {
-        if (0 == mask)
-        {
-          mask = 1;
-          foo = *pChBitMap++;
-        }
+  void SSD1351::create_text_bg()
+  {
+    // set an image as background
+    if (_text_properties.bgImage != NULL)
+    {
+      update_screen_buffer(_text_properties.bgImage);
+    }
+  }
 
         if (0 != (foo & mask))
-        {
+  {
           *(*chrBuf + yCnt * currentChar_width + xCnt) = selectedFont_color;
-        }
+    }
 
         else
-        {
+    {
           *(*chrBuf + yCnt * currentChar_width + xCnt) = 0;
         }
 
         mask <<= 1;
-      }
-    }
-  }
-
-  Status SSD1351::AddCharToTextArea(
-      oled_pixel_t chrPtr,
-      uint8_t chrWidth,
-      uint8_t chrHeight,
-      oled_pixel_t copyAddr,
-      uint8_t imgWidth)
-  {
-    if (NULL == copyAddr)
-    {
-      return Status::INIT_ERROR;
-    }
-
-    for (uint8_t i = 0; i < chrHeight; i++)
-    {
-      for (uint8_t j = 0; j < chrWidth; j++)
-      {
-        if (0 != chrPtr[j])
-        {
-          copyAddr[j] = chrPtr[j];
         }
       }
-      copyAddr += imgWidth;
-      chrPtr += chrWidth;
     }
-    return Status::SUCCESS;
-  }
 
+  void SSD1351::write_char_to_buffer(char charToWrite, uint8_t *xOffset, uint8_t *yOffset)
+  {
+    if (charToWrite < selectedFont_firstChar || charToWrite > selectedFont_lastChar)
+    {
+      // If we're tying to write a character not present in the font we write '?' instead
+      charToWrite = '?';
+    }
+
+    const uint8_t *charOffetTable = _text_properties.font->bitmap + 8 +
+                                    (uint16_t)((charToWrite - selectedFont_firstChar) << 2);
+    uint32_t offset = (uint32_t)charOffetTable[1] |
+                      ((uint32_t)charOffetTable[2] << 8) |
+                      ((uint32_t)charOffetTable[3] << 16);
+    uint8_t charWidth = *charOffetTable;
+    const uint8_t *charBitMap = _text_properties.font->bitmap + offset;
+
+    log_error("char %c %d\n", charToWrite, charToWrite);
+    log_error("char w %d, char h %d\n", charWidth, selectedFont_height);
+    log_error("offset %d\n", offset);
+
+    uint8_t foo = 0, mask;
+    for (uint8_t yCnt = 0; yCnt < selectedFont_height; ++yCnt)
+    {
+      mask = 0;
+      for (uint8_t xCnt = 0; xCnt < charWidth; ++xCnt)
+      {
+        if (mask == 0)
+        {
+          mask = 1;
+          foo = *charBitMap++;
+        }
+
+        if ((foo & mask) != 0)
+        {
+          *(_dynamic_area.buffer +
+            (yCnt + (*yOffset)) * _dynamic_area.width +
+            (xCnt + (*xOffset))) = (uint16_t)swap_color(_text_properties.fontColor);
+        }
+        mask <<= 1;
+      }
+    }
+
+    *xOffset += charWidth;
+  }
 } // namespace oled
