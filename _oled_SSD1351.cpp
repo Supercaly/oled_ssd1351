@@ -34,8 +34,7 @@
  */
 
 #include "_oled_SSD1351.h"
-#include "OpenSans_Font.h"
-#include "mbed.h"
+#include "font/opensans_font.h"
 
 namespace oled
 {
@@ -103,7 +102,7 @@ namespace oled
     // reset text prop
     _text_properties.alignParam = TEXT_ALIGN_LEFT | TEXT_ALIGN_TOP;
     _text_properties.bgImage = NULL;
-    _text_properties.font = &Dialog_plain_18;
+    _text_properties.font = OpenSans_15_Regular;
     _text_properties.fontColor = Color::WHITE;
     set_text_properties(&_text_properties);
 
@@ -390,7 +389,7 @@ namespace oled
 
     while (text[chrCnt] != 0)
     {
-      // text_width += *(_text_properties.font + 8 + (uint16_t)((text[chrCnt++] - selectedFont_firstChar) << 2));
+      text_width += *(_text_properties.font + 8 + (uint16_t)((text[chrCnt++] - selectedFont_firstChar) << 2));
       //  make 1px space between chars
       text_width++;
     }
@@ -414,9 +413,9 @@ namespace oled
     _text_properties.alignParam = prop->alignParam;
     _text_properties.bgImage = prop->bgImage;
 
-    // selectedFont_firstChar = *(prop->font + 2);
-    // selectedFont_lastChar = *(prop->font + 3) + selectedFont_firstChar;
-    // selectedFont_height = *(prop->font + 1);
+    selectedFont_firstChar = prop->font[2] | ((uint16_t)prop->font[3] << 8);
+    selectedFont_lastChar = prop->font[4] | ((uint16_t)prop->font[5] << 8);
+    selectedFont_height = prop->font[6];
   }
 
   /////////////////////
@@ -666,8 +665,7 @@ namespace oled
     int charCount = 0;
     while (text[charCount] != 0)
     {
-      a(text[charCount], &char_x_offset, &char_y_offset);
-      // write_char_to_buffer(text[charCount], &char_x_offset, &char_y_offset);
+      write_char_to_buffer(text[charCount], &char_x_offset, &char_y_offset);
       charCount++;
     }
 
@@ -723,21 +721,6 @@ namespace oled
     }
   }
 
-        if (0 != (foo & mask))
-  {
-          *(*chrBuf + yCnt * currentChar_width + xCnt) = selectedFont_color;
-    }
-
-        else
-    {
-          *(*chrBuf + yCnt * currentChar_width + xCnt) = 0;
-        }
-
-        mask <<= 1;
-        }
-      }
-    }
-
   void SSD1351::write_char_to_buffer(char charToWrite, uint8_t *xOffset, uint8_t *yOffset)
   {
     if (charToWrite < selectedFont_firstChar || charToWrite > selectedFont_lastChar)
@@ -746,17 +729,13 @@ namespace oled
       charToWrite = '?';
     }
 
-    const uint8_t *charOffetTable = _text_properties.font->bitmap + 8 +
+    const uint8_t *charOffetTable = _text_properties.font + 8 +
                                     (uint16_t)((charToWrite - selectedFont_firstChar) << 2);
     uint32_t offset = (uint32_t)charOffetTable[1] |
                       ((uint32_t)charOffetTable[2] << 8) |
                       ((uint32_t)charOffetTable[3] << 16);
     uint8_t charWidth = *charOffetTable;
-    const uint8_t *charBitMap = _text_properties.font->bitmap + offset;
-
-    log_error("char %c %d\n", charToWrite, charToWrite);
-    log_error("char w %d, char h %d\n", charWidth, selectedFont_height);
-    log_error("offset %d\n", offset);
+    const uint8_t *charBitMap = _text_properties.font + offset;
 
     uint8_t foo = 0, mask;
     for (uint8_t yCnt = 0; yCnt < selectedFont_height; ++yCnt)
