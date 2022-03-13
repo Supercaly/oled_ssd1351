@@ -31,6 +31,7 @@
  * get support at: http://www.mikroe.com/forum and https://community.nxp.com
  *
  * Project HEXIWEAR, 2015
+ * Rewrite by Lorenzo Calisti, 2022
  */
 
 #include "oled_SSD1351.h"

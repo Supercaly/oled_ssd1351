@@ -31,11 +31,7 @@
  * get support at: http://www.mikroe.com/forum and https://community.nxp.com
  *
  * Project HEXIWEAR, 2015
- */
-
-/**
- * OLED-related data structures
- * Project HEXIWEAR, 2015
+ * Rewrite by Lorenzo Calisti, 2022
  */
 
 #ifndef OLED_TYPES_H_
