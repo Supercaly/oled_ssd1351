@@ -539,6 +539,8 @@ namespace oled
 
     send_cmd({OLED_CMD_SET_REMAP, CMD_BYTE});
     send_cmd({OLED_REMAP_SETTINGS, DATA_BYTE});
+
+    transpose_screen_buffer();
   }
 
   void SSD1351::draw_screen_right_left()
@@ -574,6 +576,8 @@ namespace oled
 
     send_cmd({OLED_CMD_SET_REMAP, CMD_BYTE});
     send_cmd({OLED_REMAP_SETTINGS, DATA_BYTE});
+
+    transpose_screen_buffer();
   }
 
   Status SSD1351::draw_text(const char *text)
