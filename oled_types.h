@@ -76,7 +76,6 @@ namespace oled
     uint8_t yCrd;
     uint8_t width;
     uint8_t height;
-    pixel_t *buffer;
   };
 
   // Represent the most used colors

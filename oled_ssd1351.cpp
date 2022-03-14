@@ -88,6 +88,7 @@ namespace oled
                                                     _rst(rstPin),
                                                     _dc(dcPin)
   {
+    _init = false;
 
     _spi.frequency(8000000);
 
@@ -110,9 +111,9 @@ namespace oled
     // reset dynamic area
     _dynamic_area.xCrd = 0;
     _dynamic_area.yCrd = 0;
-    _dynamic_area.width = 0;
-    _dynamic_area.height = 0;
-    _dynamic_area.buffer = NULL;
+    _dynamic_area.width = OLED_SCREEN_WIDTH;
+    _dynamic_area.height = OLED_SCREEN_HEIGHT;
+    _area_buffer = (pixel_t *)malloc(OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT * sizeof(pixel_t));
 
     // send init commands to OLED
     for (int i = 0; i < 39; i++)
@@ -123,7 +124,7 @@ namespace oled
 
   SSD1351::~SSD1351(void)
   {
-    destroy_dynamic_area();
+    free(_area_buffer);
   }
 
   void SSD1351::dim_screen_on()
@@ -152,48 +153,24 @@ namespace oled
     _power = 0;
   }
 
-  Status SSD1351::set_dynamic_area(DynamicArea *area)
+  Status SSD1351::set_dynamic_area(DynamicArea area)
   {
     // check if given area is valid
-    if (!check_coord(area->xCrd, area->yCrd, area->width, area->height))
+    if (!check_coord(area.xCrd, area.yCrd, area.width, area.height))
     {
       return Status::COORD_ERROR;
     }
 
-    // destroy dynamic area if the new one has different size
-    if (area->width != _dynamic_area.width || area->height != _dynamic_area.height)
+    if (!_init)
     {
-      destroy_dynamic_area();
-    }
-    // allocate memory for the area
-    if (_dynamic_area.buffer == NULL)
-    {
-      _dynamic_area.buffer = (pixel_t *)malloc(area->width * area->height * sizeof(pixel_t));
-    }
-
-    // if, after allocating memory the buffer is null something wrong happened... return an error
-    if (_dynamic_area.buffer == NULL)
-    {
-      return Status::INIT_ERROR;
+      _init = true;
+      set_buffer_border(0, 0, OLED_SCREEN_WIDTH, OLED_SCREEN_HEIGHT);
     }
 
     // set the coordinates and border
-    _dynamic_area.xCrd = area->xCrd;
-    _dynamic_area.yCrd = area->yCrd;
-    _dynamic_area.width = area->width;
-    _dynamic_area.height = area->height;
-    set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
+    _dynamic_area = area;
 
     return Status::SUCCESS;
-  }
-
-  void SSD1351::destroy_dynamic_area()
-  {
-    if (_dynamic_area.buffer != NULL)
-    {
-      free(_dynamic_area.buffer);
-      _dynamic_area.buffer = NULL;
-    }
   }
 
   Status SSD1351::fill_screen(Color color)
@@ -203,54 +180,33 @@ namespace oled
         .yCrd = 0,
         .width = OLED_SCREEN_WIDTH,
         .height = OLED_SCREEN_HEIGHT};
-    Status status = set_dynamic_area(&area);
+    Status status = set_dynamic_area(area);
     if (status != Status::SUCCESS)
     {
       return status;
     }
 
-    uint8_t *data = (uint8_t *)_dynamic_area.buffer;
-    for (size_t i = 0; i < (OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT); i++)
+    uint16_t swappedColor = swap_color(color);
+    for (size_t i = 0; i < (_dynamic_area.width * _dynamic_area.height); i++)
     {
-      data[2 * i] = color >> 8;
-      data[2 * i + 1] = color;
+      _area_buffer[i] = swappedColor;
     }
 
     draw_screen_buffer();
-    destroy_dynamic_area();
 
     return Status::SUCCESS;
   }
 
   Status SSD1351::draw_image(const uint8_t *image)
   {
-    if (_dynamic_area.buffer == NULL)
+    if (_area_buffer == NULL)
     {
       return Status::AREA_NOT_SET;
     }
 
     update_screen_buffer((pixel_t *)image);
     draw_screen_buffer();
-    return Status::SUCCESS;
-  }
 
-  Status SSD1351::draw_image(const uint8_t *image, uint8_t x, uint8_t y, uint8_t w, uint8_t h)
-  {
-    DynamicArea area = {
-        .xCrd = x,
-        .yCrd = y,
-        .width = w,
-        .height = h};
-    Status status = set_dynamic_area(&area);
-    if (status != Status::SUCCESS)
-    {
-      return status;
-    }
-
-    update_screen_buffer((pixel_t *)image);
-    draw_screen_buffer();
-
-    destroy_dynamic_area();
     return Status::SUCCESS;
   }
 
@@ -261,13 +217,14 @@ namespace oled
         .yCrd = 0,
         .width = OLED_SCREEN_WIDTH,
         .height = OLED_SCREEN_HEIGHT};
-    Status status = set_dynamic_area(&area);
+    Status status = set_dynamic_area(area);
     if (status != Status::SUCCESS)
     {
       return status;
     }
 
-    update_screen_buffer((pixel_t *)image);
+    memcpy(_area_buffer, (pixel_t *)image, OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT * sizeof(pixel_t));
+
     switch (transition)
     {
     case Transition::NONE:
@@ -297,32 +254,26 @@ namespace oled
     }
     }
 
-    destroy_dynamic_area();
     return Status::SUCCESS;
   }
 
-  Status SSD1351::draw_box(uint8_t x, uint8_t y, uint8_t w, uint8_t h, Color color)
+  Status SSD1351::draw_box(Color color)
   {
-    uint32_t boxSize = w * h;
-    DynamicArea boxArea = {
-        .xCrd = x,
-        .yCrd = y,
-        .width = w,
-        .height = h};
-    Status status = set_dynamic_area(&boxArea);
-    if (status != Status::SUCCESS)
+    if (_area_buffer == NULL)
     {
-      return status;
+      return Status::AREA_NOT_SET;
     }
 
-    for (uint16_t i = 0; i < boxSize; i++)
+    pixel_t *buff = (pixel_t *)malloc(sizeof(pixel_t) * _dynamic_area.width * _dynamic_area.height);
+    uint16_t swappedColor = swap_color(color);
+    for (size_t y = 0; y < _dynamic_area.width * _dynamic_area.height; ++y)
     {
-      _dynamic_area.buffer[2 * i] = color >> 8;
-      _dynamic_area.buffer[2 * i + 1] = color;
+      buff[y] = swappedColor;
     }
 
+    update_screen_buffer(buff);
+    free(buff);
     draw_screen_buffer();
-    destroy_dynamic_area();
 
     return Status::SUCCESS;
   }
@@ -334,17 +285,17 @@ namespace oled
         .yCrd = y,
         .width = 1,
         .height = 1};
-    Status status = set_dynamic_area(&area);
+    Status status = set_dynamic_area(area);
     if (status != Status::SUCCESS)
     {
       return status;
     }
 
-    pixel_t dot = swap_color(color);
-    _dynamic_area.buffer[0] = dot;
+    pixel_t *pixelBuff = (pixel_t *)malloc(sizeof(pixel_t));
+    pixelBuff[0] = swap_color(color);
+    update_screen_buffer(pixelBuff);
+    free(pixelBuff);
     draw_screen_buffer();
-
-    destroy_dynamic_area();
 
     return Status::SUCCESS;
   }
@@ -371,7 +322,7 @@ namespace oled
         .yCrd = y,
         .width = get_text_width(text),
         .height = selectedFont_height};
-    Status status = set_dynamic_area(&txtArea);
+    Status status = set_dynamic_area(txtArea);
     if (status != Status::SUCCESS)
     {
       return status;
@@ -379,7 +330,6 @@ namespace oled
 
     status = draw_text(text);
 
-    destroy_dynamic_area();
     return status;
   }
 
@@ -425,21 +375,10 @@ namespace oled
 
   void SSD1351::send_cmd(Command command)
   {
-    uint8_t
-        txSize = 1,
-        txBuf[4];
+    uint8_t txBuf[4];
 
-    memcpy((void *)txBuf, (void *)&command.cmd, txSize);
-
-    if (command.type)
-    {
-      _dc = 0;
-    }
-    else
-    {
-      _dc = 1;
-    }
-
+    memcpy(txBuf, (void *)&command.cmd, 1);
+    _dc = command.type ? 0 : 1;
     _cs = 0;
     _spi.write(*txBuf);
     _cs = 1;
@@ -447,12 +386,6 @@ namespace oled
 
   void SSD1351::send_data(const uint8_t *dataToSend, uint32_t dataSize)
   {
-    uint16_t *arrayPtr = (uint16_t *)dataToSend;
-    for (uint32_t i = 0; i < dataSize / 2; i++)
-    {
-      arrayPtr[i] &= Color::WHITE;
-    }
-
     send_cmd({OLED_CMD_WRITERAM, CMD_BYTE});
 
     /* sending data -> set DC pin */
@@ -481,18 +414,24 @@ namespace oled
 
   void SSD1351::update_screen_buffer(pixel_t *image)
   {
-    memcpy(_dynamic_area.buffer, image, _dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
+    for (size_t y = 0; y < _dynamic_area.height; y++)
+    {
+      for (size_t x = 0; x < _dynamic_area.width; x++)
+      {
+        _area_buffer[(y + _dynamic_area.yCrd) * OLED_SCREEN_WIDTH + (x + _dynamic_area.xCrd)] = image[y * _dynamic_area.width + x];
+      }
+    }
   }
 
   void SSD1351::transpose_screen_buffer()
   {
     pixel_t *tmpBuff = (pixel_t *)malloc(_dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
-    memcpy(tmpBuff, _dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
+    memcpy(tmpBuff, _area_buffer, _dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
     for (uint8_t i = 0; i < _dynamic_area.height; i++)
     {
       for (uint8_t j = 0; j < _dynamic_area.width; j++)
       {
-        _dynamic_area.buffer[j * _dynamic_area.height + i] = tmpBuff[i * _dynamic_area.width + j];
+        _area_buffer[j * _dynamic_area.height + i] = tmpBuff[i * _dynamic_area.width + j];
       }
     }
     free(tmpBuff);
@@ -500,7 +439,7 @@ namespace oled
 
   void SSD1351::draw_screen_buffer()
   {
-    send_data((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
+    send_data((const uint8_t *)_area_buffer, OLED_SCREEN_WIDTH * OLED_SCREEN_HEIGHT * OLED_BYTES_PER_PIXEL);
   }
 
   void SSD1351::draw_screen_top_down()
@@ -509,7 +448,7 @@ namespace oled
 
     uint16_t partImgSize = _dynamic_area.width * transStep;
 
-    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer +
+    uint8_t *partImgPtr = (uint8_t *)_area_buffer +
                           (_dynamic_area.height - transStep) *
                               (_dynamic_area.width * OLED_BYTES_PER_PIXEL);
 
@@ -519,7 +458,7 @@ namespace oled
 
       if (partImgSize > _dynamic_area.width * _dynamic_area.height)
       {
-        send_data((const uint8_t *)_dynamic_area.buffer,
+        send_data((const uint8_t *)_area_buffer,
                   _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
@@ -540,7 +479,7 @@ namespace oled
 
     uint16_t partImgSize = _dynamic_area.width * transStep;
 
-    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer;
+    uint8_t *partImgPtr = (uint8_t *)_area_buffer;
 
     uint8_t yCrd_moving = _dynamic_area.yCrd + _dynamic_area.height - 1;
 
@@ -550,7 +489,7 @@ namespace oled
       {
         set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd,
                           _dynamic_area.width, _dynamic_area.height);
-        send_data((const uint8_t *)_dynamic_area.buffer,
+        send_data((const uint8_t *)_area_buffer,
                   _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
@@ -576,7 +515,7 @@ namespace oled
 
     uint16_t transStep = OLED_TRANSITION_STEP;
     uint16_t partImgSize = _dynamic_area.height * transStep;
-    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer +
+    uint8_t *partImgPtr = (uint8_t *)_area_buffer +
                           (_dynamic_area.width - transStep) *
                               (_dynamic_area.height * OLED_BYTES_PER_PIXEL);
 
@@ -585,7 +524,7 @@ namespace oled
       set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
       if (partImgSize > _dynamic_area.width * _dynamic_area.height)
       {
-        send_data((const uint8_t *)_dynamic_area.buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)_area_buffer, _dynamic_area.width * _dynamic_area.height * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
@@ -611,7 +550,7 @@ namespace oled
 
     uint16_t transStep = OLED_TRANSITION_STEP;
     uint16_t partImgSize = _dynamic_area.height * transStep;
-    uint8_t *partImgPtr = (uint8_t *)_dynamic_area.buffer;
+    uint8_t *partImgPtr = (uint8_t *)_area_buffer;
     uint8_t xCrd_moving = _dynamic_area.xCrd + _dynamic_area.width - 1;
 
     while (1)
@@ -619,7 +558,7 @@ namespace oled
       if ((partImgSize > _dynamic_area.width * _dynamic_area.height) || (xCrd_moving < _dynamic_area.xCrd))
       {
         set_buffer_border(_dynamic_area.xCrd, _dynamic_area.yCrd, _dynamic_area.width, _dynamic_area.height);
-        send_data((const uint8_t *)_dynamic_area.buffer, _dynamic_area.height * _dynamic_area.width * OLED_BYTES_PER_PIXEL);
+        send_data((const uint8_t *)_area_buffer, _dynamic_area.height * _dynamic_area.width * OLED_BYTES_PER_PIXEL);
         break;
       }
       else
@@ -639,7 +578,7 @@ namespace oled
 
   Status SSD1351::draw_text(const char *text)
   {
-    if (_dynamic_area.buffer == NULL)
+    if (_area_buffer == NULL)
     {
       return Status::AREA_NOT_SET;
     }
@@ -650,6 +589,7 @@ namespace oled
     if (textWidth > _dynamic_area.width || textHeight > _dynamic_area.height)
     {
       // TODO: Resize the dynamic area and return error only if the text is bigger that the screen
+      // TODO: Rename this error type
       return Status::INIT_ERROR;
     }
 
@@ -660,15 +600,35 @@ namespace oled
     compute_alignment(textWidth, &char_x_offset, &char_y_offset);
 
     // create text background
-    create_text_bg();
+    if (_text_properties.bgImage != NULL)
+    {
+      update_screen_buffer(_text_properties.bgImage);
+    }
 
     // write characters in their space one by one
+    pixel_t *textBuff = (pixel_t *)malloc(_dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
+    memset(textBuff, 0, _dynamic_area.width * _dynamic_area.height * sizeof(pixel_t));
+
     int charCount = 0;
     while (text[charCount] != 0)
     {
-      write_char_to_buffer(text[charCount], &char_x_offset, &char_y_offset);
+      write_char_to_buffer(textBuff, text[charCount], &char_x_offset, &char_y_offset);
       charCount++;
     }
+
+    for (size_t y = 0; y < _dynamic_area.height; y++)
+    {
+      for (size_t x = 0; x < _dynamic_area.width; x++)
+      {
+        if (textBuff[y * _dynamic_area.width + x] != 0)
+        {
+          _area_buffer[(y + _dynamic_area.yCrd) * OLED_SCREEN_WIDTH + (x + _dynamic_area.xCrd)] =
+              textBuff[y * _dynamic_area.width + x];
+        }
+      }
+    }
+    // update_screen_buffer(textBuff);
+    free(textBuff);
 
     // display the text on the OLED
     draw_screen_buffer();
@@ -713,16 +673,7 @@ namespace oled
     }
   }
 
-  void SSD1351::create_text_bg()
-  {
-    // set an image as background
-    if (_text_properties.bgImage != NULL)
-    {
-      update_screen_buffer(_text_properties.bgImage);
-    }
-  }
-
-  void SSD1351::write_char_to_buffer(char charToWrite, uint8_t *xOffset, uint8_t *yOffset)
+  void SSD1351::write_char_to_buffer(pixel_t *buff, char charToWrite, uint8_t *xOffset, uint8_t *yOffset)
   {
     if (charToWrite < selectedFont_firstChar || charToWrite > selectedFont_lastChar)
     {
@@ -750,12 +701,9 @@ namespace oled
           foo = *charBitMap++;
         }
 
-        if ((foo & mask) != 0)
-        {
-          *(_dynamic_area.buffer +
-            (yCnt + (*yOffset)) * _dynamic_area.width +
-            (xCnt + (*xOffset))) = (uint16_t)swap_color(_text_properties.fontColor);
-        }
+        *(buff +
+          (yCnt + (*yOffset)) * _dynamic_area.width +
+          (xCnt + (*xOffset))) = ((foo & mask) != 0) ? (uint16_t)swap_color(_text_properties.fontColor) : 0;
         mask <<= 1;
       }
     }

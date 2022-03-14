@@ -64,27 +64,21 @@ namespace oled
         void power_off();
 
         // Set OLED dynamic area
-        Status set_dynamic_area(DynamicArea *dynamic_area);
-
-        // Destroy current OLED dynamic area
-        void destroy_dynamic_area();
+        Status set_dynamic_area(DynamicArea dynamic_area);
 
         // Fill the entire screen with specified color
         Status fill_screen(Color color);
 
-        // Draw an image to OLED.
-        // Used with set_dynamic_area() for positioning image.
-        // TODO: Figure out if this is needed
+        // Draw an image to OLED
+        // Used with set_dynamic_area() for positioning it
         Status draw_image(const uint8_t *image);
-
-        // Draw an image to OLED at position x,y with width,height.
-        Status draw_image(const uint8_t *image, uint8_t x, uint8_t y, uint8_t w, uint8_t h);
 
         // Draw an image in the entire screen with a transition
         Status draw_screen(const uint8_t *image, Transition transition);
 
         // Draw a box on the OLED
-        Status draw_box(uint8_t x, uint8_t y, uint8_t w, uint8_t h, Color color);
+        // Used with set_dynamic_area() for positioning it
+        Status draw_box(Color color);
 
         // Draw a single pixel
         Status draw_pixel(uint8_t x, uint8_t y, Color color);
@@ -105,10 +99,9 @@ namespace oled
         // Get the OLED text properties
         void get_text_properties(TextProperties *prop);
 
-        // Count the characters of a text
-        // uint8_t CharCount(uint8_t width, const uint8_t *font, const uint8_t *text, uint8_t length);
-
     private:
+        bool _init;
+
         // OLED device wires
         SPI _spi;
         DigitalOut _power;
@@ -117,12 +110,14 @@ namespace oled
         DigitalOut _dc;
 
         // Font related variables
+        TextProperties _text_properties;
         uint16_t selectedFont_firstChar;
         uint16_t selectedFont_lastChar;
         uint16_t selectedFont_height;
 
+        // Dynamic area
         DynamicArea _dynamic_area;
-        TextProperties _text_properties;
+        pixel_t *_area_buffer;
 
         // Send a command to the OLED
         void send_cmd(Command cmd);
@@ -145,8 +140,7 @@ namespace oled
         // Functions to draw text
         Status draw_text(const char *text);
         void compute_alignment(uint8_t textWidth, uint8_t *xOff, uint8_t *yOff);
-        void create_text_bg();
-        void write_char_to_buffer(char charToWrite, uint8_t *xOffset, uint8_t *yOffset);
+        void write_char_to_buffer(pixel_t *buff, char charToWrite, uint8_t *xOffset, uint8_t *yOffset);
     };
 } // namespace oled
 
