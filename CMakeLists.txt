@@ -12,5 +12,5 @@ target_include_directories(oled_ssd1351
 target_sources(oled_ssd1351 
     INTERFACE 
         oled_ssd1351.cpp
-        opensans_font.c
+        font/opensans_font.c
 )

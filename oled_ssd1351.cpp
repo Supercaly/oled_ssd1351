@@ -94,11 +94,11 @@ namespace oled
 
     _dc = 0;
     power_off();
-    wait_ms(1);
+    ThisThread::sleep_for(1ms);
     _rst = 0;
-    wait_ms(1);
+    ThisThread::sleep_for(1ms);
     _rst = 1;
-    wait_ms(1);
+    ThisThread::sleep_for(1ms);
     power_on();
 
     // reset text prop
@@ -133,7 +133,7 @@ namespace oled
     {
       send_cmd({OLED_CMD_CONTRASTMASTER, CMD_BYTE});
       send_cmd({(uint32_t)(0xC0 | (0xF - i)), DATA_BYTE});
-      wait_ms(20);
+      ThisThread::sleep_for(20ms);
     }
   }
 
@@ -321,7 +321,7 @@ namespace oled
         .xCrd = x,
         .yCrd = y,
         .width = get_text_width(text),
-        .height = selectedFont_height};
+        .height = (uint8_t)selectedFont_height};
     Status status = set_dynamic_area(txtArea);
     if (status != Status::SUCCESS)
     {

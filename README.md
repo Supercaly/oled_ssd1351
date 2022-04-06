@@ -4,13 +4,22 @@ This library drives the OLED display SSD1351 included in the [HEXIWEAR](https://
 
 This library is a re-work of the [Hexi_OLED_SSD1351](https://os.mbed.com/teams/Hexiwear/code/Hexi_OLED_SSD1351/) made by the HEXIEAR Project team made to fix some problems and customize it to my personal needs.
 
-## Getting Started 
+## Getting Started
 
-To use this library you can use the mbed-cli to include it in you project, just run this command on the console:
+To use this library with the new [mbed-cli 2](https://os.mbed.com/docs/mbed-os/v6.15/build-tools/mbed-cli-2.html) build system you need to follow this steps:
 
-```console
-$ mbed add url/of/library
-``` 
+1. manually create a `oled_ssd1351.lib` file containing the url of this git repository
+2. run `mbed-tools deploy` to download the required code
+3. add the library to your main `CMakeLists.txt` file
+
+```cmake
+add_subdirectory(oled_ssd1351)
+ 
+target_link_libraries(${APP_TARGET} 
+    mbed-os 
+    oled_ssd1351
+)
+```
 
 ## Features
 
@@ -72,7 +81,7 @@ int main()
     while (true)
     {
         led = !led;
-        wait_ms(500);
+        ThisThread::sleep_for(500ms);
     }
     return 0;
 }
