@@ -44,7 +44,6 @@
 // OLED size
 #define OLED_SCREEN_WIDTH (96)
 #define OLED_SCREEN_HEIGHT (96)
-#define OLED_BYTES_PER_PIXEL (2)
 
 // OLED offset
 #define OLED_COLUMN_OFFSET (16)

@@ -54,13 +54,11 @@ namespace oled
   // Represent all possible status
   enum class Status
   {
-    SUCCESS,        // success
-    ERROR,          // fail
-    PROTOCOL_ERROR, // SPI failure
-    INIT_ERROR,     // initialization error
-    DEINIT_ERROR,   // deinitialization error
-    COORD_ERROR,    // invalid coordinates
-    AREA_NOT_SET    // using dynamic area w/out setting it
+    SUCCESS,      // success
+    COORD_ERROR,  // invalid coordinates
+    AREA_NOT_SET, // using dynamic area w/out setting it
+    INVALID_TEXT, // the given text string is null
+    TEXT_OVERFLOW // the given text is bigger than the set area
   };
 
   // Redefine the type of a single pixel
