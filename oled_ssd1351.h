@@ -100,8 +100,6 @@ namespace oled
         void get_text_properties(TextProperties *prop);
 
     private:
-        bool _init;
-
         // OLED device wires
         SPI _spi;
         DigitalOut _power;
@@ -117,6 +115,7 @@ namespace oled
 
         // Dynamic area
         DynamicArea _dynamic_area;
+        pixel_t *_screen_buffer;
         pixel_t *_area_buffer;
 
         // Send a command to the OLED
@@ -130,6 +129,7 @@ namespace oled
         void update_screen_buffer(pixel_t *image);
         void transpose_screen_buffer();
         void draw_screen_buffer();
+        void draw_area_buffer();
 
         // Functions to draw screen with transition
         void draw_screen_top_down();
