@@ -90,9 +90,6 @@ namespace oled
         // Write text on the OLED at position x,y
         Status label(const char *text, uint8_t x, uint8_t y);
 
-        // Return the width in px af given text
-        uint8_t get_text_width(const char *text);
-
         // Set the OLED text properties
         void set_text_properties(TextProperties *prop);
 
@@ -139,8 +136,10 @@ namespace oled
 
         // Functions to draw text
         Status draw_text(const char *text);
-        void compute_alignment(uint8_t textWidth, uint8_t *xOff, uint8_t *yOff);
+        void compute_alignment(uint8_t lineWidth, uint8_t line_num, uint8_t lines, uint8_t *xOff, uint8_t *yOff);
         void write_char_to_buffer(pixel_t *buff, char charToWrite, uint8_t *xOffset, uint8_t *yOffset);
+        int get_line_count(const char *text);
+        uint8_t get_line_width(const char *text);
     };
 } // namespace oled
 
