@@ -611,7 +611,7 @@ namespace oled
     {
       // 3.1. Get line width
       int lineWidth = get_line_width(text + charCount);
-
+      
       // 3.2. Check for line overflow
       if (lineWidth > _dynamic_area.width)
       {
@@ -741,12 +741,22 @@ namespace oled
 
     while ((text[chrCnt] != 0) && (text[chrCnt] != '\n'))
     {
-      text_width += *(_text_properties.font + 8 + (uint16_t)((text[chrCnt++] - selectedFont_firstChar) << 2));
+      if (text[chrCnt] < selectedFont_firstChar || text[chrCnt] > selectedFont_lastChar)
+      {
+        // Check for unsupported characters and replace them with '?'
+        text_width += *(_text_properties.font + 8 + (uint16_t)((text['?'] - selectedFont_firstChar) << 2));
+      }
+      else
+      {
+        text_width += *(_text_properties.font + 8 + (uint16_t)((text[chrCnt] - selectedFont_firstChar) << 2));
+      }
       //  make 1px space between chars
       text_width++;
+      chrCnt++;
     }
     // remove the final space
-    text_width--;
+    if (text_width > 0)
+      text_width--;
     return text_width;
   }
 } // namespace oled
