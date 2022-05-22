@@ -324,7 +324,7 @@ namespace oled
     DynamicArea txtArea = {
         .xCrd = x,
         .yCrd = y,
-        .width = get_text_width(text),
+        .width = get_line_width(text),
         .height = (uint8_t)selectedFont_height};
     Status status = set_dynamic_area(txtArea);
     if (status != Status::SUCCESS)
@@ -335,22 +335,6 @@ namespace oled
     status = draw_text(text);
 
     return status;
-  }
-
-  uint8_t SSD1351::get_text_width(const char *text)
-  {
-    uint8_t chrCnt = 0;
-    uint8_t text_width = 0;
-
-    while (text[chrCnt] != 0)
-    {
-      text_width += *(_text_properties.font + 8 + (uint16_t)((text[chrCnt++] - selectedFont_firstChar) << 2));
-      //  make 1px space between chars
-      text_width++;
-    }
-    // remove the final space
-    text_width--;
-    return text_width;
   }
 
   void SSD1351::get_text_properties(TextProperties *prop)
@@ -596,22 +580,10 @@ namespace oled
       return Status::AREA_NOT_SET;
     }
 
-    int textHeight = selectedFont_height;
-    int textWidth = get_text_width(text);
+    int charCount = 0;
+    int lines = get_line_count(text);
 
-    if (textWidth > _dynamic_area.width || textHeight > _dynamic_area.height)
-    {
-      // TODO: Resize the dynamic area and return error only if the text is bigger that the screen
-      // TODO: Rename this error type
-      return Status::TEXT_OVERFLOW;
-    }
-
-    uint8_t char_x_offset = 0,
-            char_y_offset = 0;
-
-    // compute text alignment
-    compute_alignment(textWidth, &char_x_offset, &char_y_offset);
-
+    // 1. Prepare background color and image
     // create text background with image
     if (_text_properties.bgImage != NULL)
     {
@@ -628,20 +600,47 @@ namespace oled
       }
     }
 
-    // write characters in their space in the area buffer one by one
-    int charCount = 0;
-    while (text[charCount] != 0)
+    // 2. Check for vertical overflow
+    if (lines * selectedFont_height > _dynamic_area.height)
     {
-      write_char_to_buffer(_area_buffer, text[charCount], &char_x_offset, &char_y_offset);
+      return Status::TEXT_OVERFLOW;
+    }
+
+    // 3. Loop each lines
+    for (int line = 0; line < lines; line++)
+    {
+      // 3.1. Get line width
+      int lineWidth = get_line_width(text + charCount);
+      
+      // 3.2. Check for line overflow
+      if (lineWidth > _dynamic_area.width)
+      {
+        return Status::TEXT_OVERFLOW;
+      }
+
+      uint8_t char_x_offset = 0,
+              char_y_offset = 0;
+
+      // 3.3. Compute text alignment
+      compute_alignment(lineWidth, line, lines, &char_x_offset, &char_y_offset);
+
+      // 3.4. Write characters in their space in the area buffer one by one
+      while ((text[charCount] != 0) && (text[charCount] != '\n'))
+      {
+        write_char_to_buffer(_area_buffer, text[charCount], &char_x_offset, &char_y_offset);
+        charCount++;
+      }
       charCount++;
     }
 
+    // 4. Draw text to screen
     draw_area_buffer();
 
     return Status::SUCCESS;
   }
 
-  void SSD1351::compute_alignment(uint8_t textWidth, uint8_t *xOff, uint8_t *yOff)
+  void SSD1351::compute_alignment(uint8_t lineWidth, uint8_t line_num, uint8_t lines,
+                                  uint8_t *xOff, uint8_t *yOff)
   {
     int xAlign = _text_properties.alignParam & 0x0F;
     int yAlign = _text_properties.alignParam & 0xF0;
@@ -652,10 +651,10 @@ namespace oled
       *xOff = 0;
       break;
     case TEXT_ALIGN_RIGHT:
-      *xOff = _dynamic_area.width - textWidth;
+      *xOff = _dynamic_area.width - lineWidth;
       break;
     case TEXT_ALIGN_CENTER:
-      *xOff = (_dynamic_area.width - textWidth) >> 1;
+      *xOff = (_dynamic_area.width - lineWidth) >> 1;
       break;
     default:
       *xOff = 0;
@@ -665,13 +664,13 @@ namespace oled
     switch (yAlign)
     {
     case TEXT_ALIGN_TOP:
-      *yOff = 0;
+      *yOff = line_num * selectedFont_height;
       break;
     case TEXT_ALIGN_BOTTOM:
-      *yOff = _dynamic_area.height - selectedFont_height;
+      *yOff = _dynamic_area.height - ((lines - line_num) * selectedFont_height);
       break;
     case TEXT_ALIGN_VCENTER:
-      *yOff = (_dynamic_area.height - selectedFont_height) >> 1;
+      *yOff = (_dynamic_area.height - (lines * selectedFont_height) + 2 * (line_num * selectedFont_height)) >> 1;
       break;
     default:
       *yOff = 0;
@@ -720,5 +719,44 @@ namespace oled
     }
 
     *xOffset += charWidth;
+  }
+
+  int SSD1351::get_line_count(const char *text)
+  {
+    uint8_t chrCnt = 0;
+    int lines = 1;
+    while (text[chrCnt] != 0)
+    {
+      if (text[chrCnt] == '\n')
+        lines++;
+      chrCnt++;
+    }
+    return lines;
+  }
+
+  uint8_t SSD1351::get_line_width(const char *text)
+  {
+    uint8_t chrCnt = 0;
+    uint8_t text_width = 0;
+
+    while ((text[chrCnt] != 0) && (text[chrCnt] != '\n'))
+    {
+      if (text[chrCnt] < selectedFont_firstChar || text[chrCnt] > selectedFont_lastChar)
+      {
+        // Check for unsupported characters and replace them with '?'
+        text_width += *(_text_properties.font + 8 + (uint16_t)((text['?'] - selectedFont_firstChar) << 2));
+      }
+      else
+      {
+        text_width += *(_text_properties.font + 8 + (uint16_t)((text[chrCnt] - selectedFont_firstChar) << 2));
+      }
+      //  make 1px space between chars
+      text_width++;
+      chrCnt++;
+    }
+    // remove the final space
+    if (text_width > 0)
+      text_width--;
+    return text_width;
   }
 } // namespace oled
